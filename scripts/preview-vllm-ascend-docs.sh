@@ -68,11 +68,45 @@ cd "$DOCS_DIR"
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
+# ---- helper: 运行 sphinx-build 并醒目报出所有 WARNING/ERROR ----
+run_sphinx() {
+    local log
+    log="$(mktemp)"
+    local rc=0
+
+    # 运行构建，stdout+stderr 全部写入临时日志
+    sphinx-build "$@" >"$log" 2>&1
+    rc=$?
+
+    # 显示 sphinx 自身的最后一行摘要
+    tail -1 "$log"
+
+    # 提取并高亮报出所有 WARNING / ERROR
+    local warn_count err_count
+    warn_count=$(grep -c "WARNING:" "$log" 2>/dev/null || true)
+    err_count=$(grep -c -E "ERROR:|CRITICAL:" "$log" 2>/dev/null || true)
+
+    if [[ "$warn_count" -gt 0 ]] || [[ "$err_count" -gt 0 ]]; then
+        echo "────────────────────────────────────────────"
+        grep -E "WARNING:|ERROR:|CRITICAL:" "$log" || true
+        echo "────────────────────────────────────────────"
+        if [[ "$err_count" -gt 0 ]]; then
+            echo "[WARN] $err_count error(s)/critical(s), $warn_count warning(s) — 详见上方 ↑"
+        else
+            echo "[WARN] $warn_count warning(s) — 详见上方 ↑"
+        fi
+        echo ""
+    fi
+
+    rm -f "$log"
+    return $rc
+}
+
 # ============================================================
 # 1. 构建英文文档
 # ============================================================
 echo ">>> 构建英文文档..."
-sphinx-build -b html source "$BUILD_DIR/html" 2>&1 | tail -3
+run_sphinx -b html source "$BUILD_DIR/html"
 if [[ ! -f "$BUILD_DIR/html/index.html" ]]; then
     echo "[ERROR] 英文构建失败"
     exit 1
@@ -85,7 +119,7 @@ echo "[OK] $BUILD_DIR/html/"
 if [[ "$DO_TRANSLATE" == true ]]; then
     echo ""
     echo ">>> 提取翻译模板..."
-    sphinx-build -b gettext source "$BUILD_DIR/gettext" 2>&1 | tail -1
+    run_sphinx -b gettext source "$BUILD_DIR/gettext"
     sphinx-intl update -p "$BUILD_DIR/gettext" -l zh_CN 2>&1 | grep -v "WARNING" || true
 
     echo ""
@@ -98,7 +132,7 @@ if [[ "$DO_TRANSLATE" == true ]]; then
         UNTRANSLATED=""
         TOTAL_EMPTY=0
         while IFS= read -r po; do
-            empty_count=$(grep -c 'msgstr ""' "$po" 2>/dev/null || echo 0)
+            empty_count=$(grep -c 'msgstr ""' "$po" 2>/dev/null || true)
             if [[ "$empty_count" -gt 1 ]]; then
                 UNTRANSLATED="${UNTRANSLATED}${po},"
                 TOTAL_EMPTY=$((TOTAL_EMPTY + empty_count - 1))
@@ -124,7 +158,7 @@ if [[ "$DO_TRANSLATE" == true ]]; then
                 set -e
 
                 if [[ $RC -eq 0 ]]; then
-                    SUCCESS=$(python3 -c "import json; d=json.load(open('/tmp/translation_results.json')); print(d.get('success_count',0))" 2>/dev/null || echo 0)
+                    SUCCESS=$(python3 -c "import json; d=json.load(open('/tmp/translation_results.json')); print(d.get('success_count',0))" 2>/dev/null || true)
                     echo "[OK] 翻译完成: $SUCCESS/$FILE_COUNT"
                 else
                     echo "[WARN] 翻译失败, 新增内容将回退英文"
@@ -142,7 +176,7 @@ fi
 # ============================================================
 echo ""
 echo ">>> 构建中文文档..."
-sphinx-build -b html -D language=zh_CN source "$BUILD_DIR/html/zh-cn" 2>&1 | tail -3
+run_sphinx -b html -D language=zh_CN source "$BUILD_DIR/html/zh-cn"
 if [[ ! -f "$BUILD_DIR/html/zh-cn/index.html" ]]; then
     echo "[ERROR] 中文构建失败"
     exit 1
