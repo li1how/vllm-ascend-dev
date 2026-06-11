@@ -8,7 +8,7 @@
 # 用法:
 #   ./scripts/preview-vllm-ascend-docs.sh               # EN→ZH→启动预览（跳过翻译）
 #   ./scripts/preview-vllm-ascend-docs.sh -t            # EN→AI翻译→ZH→启动预览
-#   ./scripts/preview-vllm-ascend-docs.sh -s            # 仅构建，不启动 HTTP 服务
+#   ./scripts/preview-vllm-ascend-docs.sh -s            # skip server，仅构建，不启动 HTTP 服务
 #   PORT=9000 ./scripts/preview-vllm-ascend-docs.sh     # 自定义预览端口
 # ============================================================
 
@@ -182,6 +182,24 @@ if [[ ! -f "$BUILD_DIR/html/zh-cn/index.html" ]]; then
     exit 1
 fi
 echo "[OK] $BUILD_DIR/html/zh-cn/"
+
+# ============================================================
+# 本地翻译文件屏蔽（仅 -t 翻译后）
+# AI 翻译会在 locale/ 目录下产生 .po 修改，
+# 用 skip-worktree 让 git 忽略这些本地改动，避免误提交。
+# ============================================================
+if [[ "$DO_TRANSLATE" == true ]]; then
+    LOCALE_PO_DIR="$DOCS_DIR/source/locale/zh_CN/LC_MESSAGES"
+    if [[ -d "$LOCALE_PO_DIR" ]]; then
+        SKIPPED_COUNT=$(git -C "$SCRIPT_DIR/vllm-ascend" ls-files -- 'docs/source/locale/zh_CN/LC_MESSAGES/*.po' 2>/dev/null | wc -l)
+        if [[ "$SKIPPED_COUNT" -gt 0 ]]; then
+            git -C "$SCRIPT_DIR/vllm-ascend" ls-files -- 'docs/source/locale/zh_CN/LC_MESSAGES/*.po' \
+                | git -C "$SCRIPT_DIR/vllm-ascend" update-index --skip-worktree --stdin 2>/dev/null
+            echo ""
+            echo "[OK] 已屏蔽 $SKIPPED_COUNT 个本地翻译文件 (skip-worktree)"
+        fi
+    fi
+fi
 
 # ============================================================
 # 完成

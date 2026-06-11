@@ -8,9 +8,6 @@
 		},
 		{
 			"path": "vllm-ascend"
-		},
-		{
-			"path": "benchmark"
 		}
 	],
 	"settings": {
