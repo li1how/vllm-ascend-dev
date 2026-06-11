@@ -1,17 +1,17 @@
 # === 代码仓库（由 bootstrap.sh 克隆，不入工作区仓库）===
-vllm/
-vllm-ascend/
-benchmark/
+/vllm/
+/vllm-ascend/
+/benchmark/
 
 # === 大二进制包 ===
-pkg/
+/pkg/
 
 # === 工作产物（不入仓库）===
-weekly-report/
-docs/feature/
+/weekly-report/
+/docs/feature/
 
 # === Secrets ===
-.env
+/.env
 
 # === Python ===
 __pycache__/
