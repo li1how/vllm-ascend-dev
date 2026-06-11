@@ -3,6 +3,9 @@
 /vllm-ascend/
 /benchmark/
 
+# === 基准测试产物 ===
+/benchmark-outputs/
+
 # === 大二进制包 ===
 /pkg/
 
