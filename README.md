@@ -10,7 +10,8 @@ vLLM Ascend 开发工作区
 ├── .vscode/                          # VSCode 项目配置
 ├── docs/                             # 开发文档与笔记
 ├── scripts/                          # 辅助脚本
-│   └── bootstrap.sh                  # 一键初始化脚本
+│   ├── bootstrap.sh                  # 一键初始化脚本
+│   └── build_docs.sh                 # 文档构建 & 预览
 └── vllm-ascend-dev.code-workspace    # VSCode 多根工作区文件
 ```
 
