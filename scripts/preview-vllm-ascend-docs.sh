@@ -6,10 +6,10 @@
 # 预览效果，无需推送到远端即可验证。
 #
 # 用法:
-#   ./scripts/build_docs.sh               # EN→ZH→启动预览（跳过翻译）
-#   ./scripts/build_docs.sh -t            # EN→AI翻译→ZH→启动预览
-#   ./scripts/build_docs.sh -s            # 仅构建，不启动 HTTP 服务
-#   PORT=9000 ./scripts/build_docs.sh     # 自定义预览端口
+#   ./scripts/preview-vllm-ascend-docs.sh               # EN→ZH→启动预览（跳过翻译）
+#   ./scripts/preview-vllm-ascend-docs.sh -t            # EN→AI翻译→ZH→启动预览
+#   ./scripts/preview-vllm-ascend-docs.sh -s            # 仅构建，不启动 HTTP 服务
+#   PORT=9000 ./scripts/preview-vllm-ascend-docs.sh     # 自定义预览端口
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
