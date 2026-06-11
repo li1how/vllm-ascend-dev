@@ -1,0 +1,36 @@
+# === 代码仓库（由 bootstrap.sh 克隆，不入工作区仓库）===
+vllm/
+vllm-ascend/
+benchmark/
+
+# === 大二进制包 ===
+pkg/
+
+# === 工作产物（不入仓库）===
+weekly-report/
+docs/feature/
+
+# === Secrets ===
+.env
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+*.whl
+
+# === IDE / Editor ===
+*.swp
+*.swo
+*~
+.vscode-server/
+
+# === Conda ===
+.python-version
+
+# === OS ===
+.DS_Store
+Thumbs.db

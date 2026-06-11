@@ -1,0 +1,22 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "vllm"
+		},
+		{
+			"path": "vllm-ascend"
+		},
+		{
+			"path": "benchmark"
+		}
+	],
+	"settings": {
+		"python.analysis.extraPaths": [
+			"${workspaceFolder:vllm}/",
+			"${workspaceFolder:vllm-ascend}/"
+		]
+	}
+}
