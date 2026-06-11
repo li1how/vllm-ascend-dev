@@ -16,13 +16,13 @@ vLLM Ascend 开发工作区
 └── vllm-ascend-dev.code-workspace    # VSCode 多根工作区文件
 ```
 
-代码仓库（vllm、vllm-ascend）由 `bootstrap.sh` 克隆到同级目录，不纳入本仓库。benchmark 仓库需显式指定 `--with-benchmark` 才会克隆。
+代码仓库（vllm、vllm-ascend）由 `bootstrap.sh` 克隆到同级目录，不纳入本仓库。benchmark 仓库需显式指定 `-b | --with-benchmark` 才会克隆。
 
 ## 快速开始
 
 ```bash
 git clone git@github.com:li1how/vllm-ascend-dev.git
 cd vllm-ascend-dev
-./scripts/bootstrap.sh                  # 默认：仅克隆 vllm + vllm-ascend
-./scripts/bootstrap.sh --with-benchmark # 同时克隆 benchmark 仓库
+./scripts/bootstrap.sh                        # 默认：仅克隆 vllm + vllm-ascend
+./scripts/bootstrap.sh -b | --with-benchmark   # 同时克隆 benchmark 仓库
 ```

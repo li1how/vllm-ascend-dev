@@ -2,9 +2,9 @@
 # ============================================================
 # vllm-ascend-dev 工作区一键初始化
 # 用法:
-#   ./bootstrap.sh                  # 默认初始化（不含 benchmark）
-#   ./bootstrap.sh --with-benchmark # 含 benchmark 仓库
-#   ./bootstrap.sh --help           # 查看帮助
+#   ./bootstrap.sh                        # 默认初始化（不含 benchmark）
+#   ./bootstrap.sh -b | --with-benchmark  # 含 benchmark 仓库
+#   ./bootstrap.sh -h | --help            # 查看帮助
 # ============================================================
 
 set -e
@@ -17,16 +17,16 @@ print_help() {
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  --with-benchmark    同时克隆 benchmark 仓库（默认不克隆）"
-    echo "  --help              显示此帮助信息"
+    echo "  -b, --with-benchmark  同时克隆 benchmark 仓库（默认不克隆）"
+    echo "  -h, --help            显示此帮助信息"
     exit 0
 }
 
 for arg in "$@"; do
     case "$arg" in
-        --with-benchmark) CLONE_BENCHMARK=true ;;
-        --help)           print_help ;;
-        *) echo "[ERROR] 未知参数: $arg，使用 --help 查看帮助"; exit 1 ;;
+        -b|--with-benchmark) CLONE_BENCHMARK=true ;;
+        -h|--help)           print_help ;;
+        *) echo "[ERROR] 未知参数: $arg，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
 
@@ -55,7 +55,7 @@ clone_if_missing "https://github.com/vllm-project/vllm-ascend.git"  "vllm-ascend
 if $CLONE_BENCHMARK; then
     clone_if_missing "https://github.com/AISBench/benchmark.git" "benchmark"
 else
-    echo "  [SKIP] benchmark（默认不克隆，使用 --with-benchmark 启用）"
+    echo "  [SKIP] benchmark（默认不克隆，使用 -b | --with-benchmark 启用）"
 fi
 
 # 给 vllm-ascend 添加个人 fork remote（如已存在则跳过）

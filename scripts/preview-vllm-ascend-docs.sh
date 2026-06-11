@@ -6,12 +6,13 @@
 # 预览效果，无需推送到远端即可验证。
 #
 # 用法:
-#   ./scripts/preview-vllm-ascend-docs.sh               # EN→ZH→启动预览（跳过翻译）
-#   ./scripts/preview-vllm-ascend-docs.sh -t            # EN→AI翻译→ZH→启动预览
-#   ./scripts/preview-vllm-ascend-docs.sh -s            # skip server，仅构建，不启动 HTTP 服务
-#   PORT=9000 ./scripts/preview-vllm-ascend-docs.sh     # 自定义预览端口
+#   ./scripts/preview-vllm-ascend-docs.sh                      # EN→ZH→启动预览（跳过翻译）
+#   ./scripts/preview-vllm-ascend-docs.sh -t | --translate     # EN→AI翻译→ZH→启动预览
+#   ./scripts/preview-vllm-ascend-docs.sh -s | --skip-server   # 仅构建，不启动 HTTP 服务
+#   PORT=9000 ./scripts/preview-vllm-ascend-docs.sh            # 自定义预览端口
 # ============================================================
 
+set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 # ---- 加载 .env ----
@@ -31,19 +32,20 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 # ---- 解析参数 ----
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -t) DO_TRANSLATE=true; shift ;;
-        -s) NO_SERVER=true; shift ;;
+        -t|--translate) DO_TRANSLATE=true; shift ;;
+        -s|--skip-server) NO_SERVER=true; shift ;;
         -h|--help)
-            echo "Usage: $0 [-t] [-s]"
+            echo "用法: $0 [选项]"
             echo ""
             echo "  默认：EN构建 → ZH构建 → 启动预览(端口8723)"
-            echo "  -t    启用 AI 翻译（DeepSeek）"
-            echo "  -s    不启动 HTTP 服务"
+            echo "  -t, --translate     启用 AI 翻译（DeepSeek）"
+            echo "  -s, --skip-server   不启动 HTTP 服务"
+            echo "  -h, --help          显示此帮助信息"
             echo ""
             echo "  PORT=9000 $0     自定义端口"
             exit 0
             ;;
-        *) echo "未知参数: $1"; exit 1 ;;
+        *) echo "[ERROR] 未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
 

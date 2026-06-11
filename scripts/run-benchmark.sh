@@ -3,12 +3,12 @@
 # vllm-ascend 基准测试运行脚本
 #
 # 对指定模型配置和数据集运行 ais_bench 基准测试。
-# 需要先通过 bootstrap.sh --with-benchmark 克隆 benchmark 仓库。
+# 需要先通过 bootstrap.sh -b | --with-benchmark 克隆 benchmark 仓库。
 #
 # 用法:
-#   ./scripts/run-benchmark.sh                                # 使用默认配置运行
-#   ./scripts/run-benchmark.sh -m vllm_api_stream_chat        # 指定模型配置
-#   ./scripts/run-benchmark.sh -d synthetic_gen -d gsm8k_gen  # 指定多个数据集
+#   ./scripts/run-benchmark.sh                                              # 使用默认配置运行
+#   ./scripts/run-benchmark.sh -m | --model vllm_api_stream_chat            # 指定模型配置
+#   ./scripts/run-benchmark.sh -d | --dataset synthetic_gen -d gsm8k_gen    # 指定多个数据集
 # ============================================================
 
 set -e
@@ -58,7 +58,7 @@ fi
 # ---- 环境检查 ----
 if [[ ! -d "$SCRIPT_DIR/benchmark" ]]; then
     echo "[ERROR] benchmark 仓库未克隆"
-    echo "  请先运行: ./scripts/bootstrap.sh --with-benchmark"
+    echo "  请先运行: ./scripts/bootstrap.sh -b | --with-benchmark"
     exit 1
 fi
 
@@ -93,15 +93,13 @@ for DS in "${DATASETS[@]}"; do
 
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 
-    python -m ais_bench.benchmark.cli.main \
+    if python -m ais_bench.benchmark.cli.main \
         --models "${MODEL_CONFIG}" \
         --datasets "${DS}" \
         --dump-eval-details \
         --summarizer example \
         --debug \
-        -w "$BENCH_OUTPUT_DIR"
-
-    if [ $? -eq 0 ]; then
+        -w "$BENCH_OUTPUT_DIR"; then
         echo ">>> ${DS} 测试完成"
     else
         echo ">>> ${DS} 测试失败，退出"
