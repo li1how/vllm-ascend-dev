@@ -12,6 +12,7 @@
 # === 工作产物（不入仓库）===
 /weekly-report/
 /docs/feature/
+/tmp/
 
 # === Secrets ===
 /.env
@@ -23,6 +24,7 @@ __pycache__/
 dist/
 build/
 .venv/
+.mypy_cache/
 *.whl
 
 # === IDE / Editor ===
