@@ -58,6 +58,14 @@ else
     echo "  [SKIP] benchmark（默认不克隆，使用 -b | --with-benchmark 启用）"
 fi
 
+# 给 vllm 添加个人 fork remote（如已存在则跳过）
+if git -C "$SCRIPT_DIR/vllm" remote get-url self &>/dev/null; then
+    echo "  [SKIP] vllm remote 'self' 已存在"
+else
+    git -C "$SCRIPT_DIR/vllm" remote add self "https://github.com/li1how/vllm.git"
+    echo "  [OK] vllm remote 'self' 已添加"
+fi
+
 # 给 vllm-ascend 添加个人 fork remote（如已存在则跳过）
 if git -C "$SCRIPT_DIR/vllm-ascend" remote get-url self &>/dev/null; then
     echo "  [SKIP] vllm-ascend remote 'self' 已存在"
