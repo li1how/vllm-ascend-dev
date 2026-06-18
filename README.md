@@ -6,8 +6,11 @@ vLLM Ascend 开发工作区
 
 ```text
 .
+├── .agents/
+│   └── skills/                       #   Codex / Claude Code 共享 Skill 单源
 ├── .claude/                          # Claude Code 项目配置
-│   └── skills/                       #   自定义 Skill（code-analysis, manage-workspace, weekly-report）
+│   ├── CLAUDE.md                     #   Claude Code 项目入口说明
+│   └── skills -> ../.agents/skills   #   Claude Code 兼容入口
 ├── .vscode/                          # VSCode 项目配置
 ├── docs/                             # 开发文档与笔记
 │   ├── analysis/                     #   代码分析产出

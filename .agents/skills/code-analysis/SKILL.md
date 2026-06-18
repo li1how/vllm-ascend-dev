@@ -1,17 +1,11 @@
 ---
 name: code-analysis
-description: vLLM / vllm-ascend 代码模块详细分析。从文件/类职责、调用链、数据流/进程模型、插件机制、算子映射等多个维度分析功能模块，输出含 Mermaid 图的 Markdown 文档。优先用 Mermaid 图表达，兼容 VSCode 预览。也可用于其他 Python/C++ 项目的代码分析。触发词：详细分析、模块分析、分析代码、代码分析、分析一下这个模块、分析一下。
+description: 分析 vLLM / vLLM-Ascend 代码模块，从文件/类职责、调用链、数据流/进程模型、插件机制、算子映射等维度输出含 Mermaid 图的 Markdown 文档，兼容 VSCode 预览；也可用于其他 Python/C++ 项目的代码分析。触发词：详细分析、模块分析、分析代码、代码分析、分析一下这个模块、详细分析一下、深入分析、深度分析。
 ---
 
-# vLLM / vllm-ascend 代码模块分析 Skill
+# vLLM / vLLM-Ascend 代码模块分析 Skill
 
-针对 vLLM 及 vllm-ascend 仓库的功能模块进行深度分析，输出结构化的 Markdown 文档，优先使用 Mermaid 图可视化表达。分析框架保持通用，也可用于其他 Python/C++ 项目。
-
----
-
-## 触发词
-
-详细分析、模块分析、分析代码、代码分析、分析一下这个模块、详细分析一下、深入分析、深度分析、分析一下
+针对 vLLM 及 vLLM-Ascend 仓库的功能模块进行深度分析，输出结构化的 Markdown 文档，优先使用 Mermaid 图可视化表达。分析框架保持通用，也可用于其他 Python/C++ 项目。
 
 ---
 
@@ -40,7 +34,7 @@ description: vLLM / vllm-ascend 代码模块详细分析。从文件/类职责�
 
 ---
 
-## Mermaid 图兼容性规范（CRITICAL）
+## Mermaid 图兼容性规范（关键）
 
 VSCode Markdown 预览内置的 Mermaid 版本较旧（通常 < 8.6.0），以下特性 **禁止使用**，否则渲染必然失败：
 
@@ -495,13 +489,13 @@ graph LR
 
 ## 执行步骤
 
-### Step 1: 确认分析目标
+### 步骤 1：确认分析目标
 
 1. 确认仓库路径和模块名称（本工作区：`vllm/` 或 `vllm-ascend/` 下的模块）
 2. 确认分析深度（standard / deep）
 3. 确认用户有无特殊关注点
 
-### Step 2: 扫描模块文件
+### 步骤 2：扫描模块文件
 
 ```bash
 # 列出模块文件
@@ -510,14 +504,14 @@ find {target_path} -type f \( -name "*.py" -o -name "*.cpp" -o -name "*.h" -o -n
 wc -l {target_path}/*.py
 ```
 
-### Step 3: 读取关键文件
+### 步骤 3：读取关键文件
 
 - 先读 `__init__.py`（如有），了解模块导出和插件注册入口
 - 再读核心类文件，识别类继承关系
 - 搜索关键函数和类定义：`grep -n "def \|class " {target_path}/*.py`
 - **vllm-ascend 特别注意**：搜索 `register_plugin`、`PLUGIN_NAME`、`entry_points`
 
-### Step 4: 追踪调用链
+### 步骤 4：追踪调用链
 
 对于 vllm/vllm-ascend：
 ```bash
@@ -535,13 +529,13 @@ grep -rn "platform\|dispatch\|plugin" vllm/ --include="*.py" | grep -i ascend | 
 grep -rn "torch_npu\|npu_\|acl_\|hccn\|hccp\|ACL" {target_path} --include="*.py" | head -30
 ```
 
-### Step 5: 按维度逐项分析
+### 步骤 5：按维度逐项分析
 
 1. 根据第〇阶段判定模块类型
 2. 从推荐的维度开始，每个维度输出 Mermaid 图 + 文字说明
 3. 分析时注意标注 vllm-ascend 与 vllm 上游的差异
 
-### Step 6: 组装文档并输出
+### 步骤 6：组装文档并输出
 
 按"输出文档模板"组装，写入 `docs/analysis/{module_name}-analysis.md`。
 

@@ -1,17 +1,11 @@
 ---
 name: manage-workspace
-description: 构建/调整 vllm-ascend-dev 工作区。先扫描分析当前工作区，后续操作均先给出方案并询问用户选择后再执行；修改后同步检查联动文件（README.md、bootstrap.sh、.gitignore 等）；全部完成后审视工作区正确性；Git 操作仅输出命令供手动执行。触发词：构建工作区、调整工作区、更新工作区、修改工作区、配置工作区、管理工作区、维护工作区、重建工作区、刷新工作区、设置工作区、变更工作区、工作区、workspace、搭建环境、初始化工作区、重新组织、整理工作区、改造工作区。
+description: 构建或调整 vllm-ascend-dev 工作区，维护目录结构、AI 工具入口说明、共享 Skill 单源和脚本配置；先扫描分析当前状态，再给出方案并等待用户选择，修改后同步检查 README.md、AGENTS.md、.claude/CLAUDE.md、bootstrap.sh、.gitignore 等联动文件，最后审视正确性；Git 操作仅输出命令供手动执行。触发词：构建工作区、调整工作区、更新工作区、修改工作区、配置工作区、管理工作区、维护工作区、重建工作区、刷新工作区、设置工作区、变更工作区、工作区、workspace、搭建环境、初始化工作区、重新组织、整理工作区、改造工作区。
 ---
 
 # vllm-ascend-dev 工作区构建 Skill
 
-针对 vllm-ascend-dev 开发工作区的结构变更、文件新增/删除、配置调整等操作，提供安全可控的工作流：扫描 → 分析 → 方案 → 确认 → 执行 → 联动 → 审视 → 手动 Git。
-
----
-
-## 触发词
-
-构建工作区、调整工作区、更新工作区、修改工作区、配置工作区、管理工作区、维护工作区、重建工作区、刷新工作区、设置工作区、变更工作区、工作区、workspace、搭建环境、初始化工作区、重新组织、整理工作区、改造工作区
+针对 vllm-ascend-dev 开发工作区的结构变更、文件新增/删除、配置调整、AI 工具入口和共享 Skill 单源维护等操作，提供安全可控的工作流：扫描 → 分析 → 方案 → 确认 → 执行 → 联动 → 审视 → 手动 Git。
 
 ---
 
@@ -22,6 +16,21 @@ description: 构建/调整 vllm-ascend-dev 工作区。先扫描分析当前工�
 3. **联动更新**: 修改后同步检查并更新所有受影响的文件
 4. **终审把关**: 所有修改完成后，整体审视一遍正确性和合理性
 5. **Git 不动手**: 只输出 Git 命令，由用户手动执行
+6. **入口一致**: 工作区说明、兼容入口和 Skill 单源保持一致，任何 AI 工具/Skill 相关改动都要验证共享入口与兼容入口
+
+---
+
+## AI 工具入口与 Skill 单源
+
+本工作区存在共享说明和工具兼容入口。处理 AI 工具说明、Skill、插件或自动化配置时，先确认改动属于共享层还是工具专属层。
+
+| 层级 | 路径 | 规则 |
+|------|------|------|
+| **共享工作区说明** | `README.md`、`AGENTS.md` | 说明工作区布局、环境、目录选择、跨仓库约束。通用规则优先写在这里，避免分别复制给不同工具 |
+| **兼容入口** | `.claude/CLAUDE.md` | 默认只导入 `../AGENTS.md` 和 `../README.md`。修改共享规则时优先更新共享文件，然后检查该入口仍然指向共享说明 |
+| **共享 Skill 单源** | `.agents/skills/` | 新增、删除、修改工作区共享 Skill 时只改这里；不要把 Skill 复制到 `.claude/skills` |
+| **Skill 兼容入口** | `.claude/skills` | 应保持为指向 `../.agents/skills` 的兼容入口或等价映射；改 Skill 后验证该入口仍能访问同一份内容 |
+| **工具专属配置** | `.claude/`、已有 `.codex/` 配置、插件配置目录 | 只有明确属于某个工具的设置才放入专属目录；不存在的工具配置不要臆造 |
 
 ---
 
@@ -39,7 +48,7 @@ description: 构建/调整 vllm-ascend-dev 工作区。先扫描分析当前工�
 | **初始化脚本** | 扫描 `scripts/`、`bootstrap*`、`setup*`、`Makefile` 等 | 脚本中引用的文件路径、克隆的仓库、创建的目录，变更时需同步 |
 | **忽略规则** | 扫描 `.gitignore`、`.dockerignore`、`.npmignore` 等 | 新增/删除文件或目录时，检查忽略规则是否需要更新 |
 | **工作区/项目配置** | 扫描 `.code-workspace`、`package.json`、`Cargo.toml`、`pyproject.toml` 等 | 目录结构调整时，检查 `folders`、`workspaces`、`packages` 等字段 |
-| **Skill/插件注册** | 扫描 `.claude/skills/`、`.claude/settings.json`、插件配置目录 | 新增/删除 Skill 或自动化配置时，检查是否需要更新项目级配置 |
+| **AI 工具入口/Skill/插件注册** | 扫描 `AGENTS.md`、`.claude/CLAUDE.md`、`.agents/skills/`、`.claude/skills` 兼容入口、`.claude/settings.json`、已有 `.codex/` 配置、插件配置目录 | 新增/删除 Skill、AI 工具说明或自动化配置时，检查共享说明、Skill 单源与兼容入口是否一致 |
 | **IDE 配置** | 扫描 `.vscode/`、`.idea/`、`.editorconfig` 等 | 路径、解释器、格式化配置变更时检查 |
 
 ### 构建联动矩阵
@@ -70,7 +79,7 @@ description: 构建/调整 vllm-ascend-dev 工作区。先扫描分析当前工�
 
 在任何操作前，必须先完整扫描工作区并输出分析报告。
 
-#### Step 0.1: 文件系统扫描
+#### 步骤 0.1：文件系统扫描
 
 ```bash
 # 列出所有非忽略文件（排除 .git 目录）
@@ -79,7 +88,7 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 
 然后读取 `.gitignore`，标注哪些文件/目录被忽略，对比实际存在和版本控制的范围。
 
-#### Step 0.2: 自动发现并读取关键文件
+#### 步骤 0.2：自动发现并读取关键文件
 
 不预设具体文件名，而是按以下策略自动发现入口文件：
 
@@ -88,9 +97,9 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 3. **项目/工作区配置**: 扫描 `*.code-workspace`、`.editorconfig`、`package.json`、`Cargo.toml`、`pyproject.toml`、`Makefile`、`CMakeLists.txt` 等
 4. **初始化/引导脚本**: 扫描 `scripts/` 目录、`bootstrap*`、`setup*`、`install*`、`init*` 等可执行脚本
 5. **IDE 配置**: 扫描 `.vscode/`、`.idea/` 中的配置文件
-6. **AI 工具配置**: 扫描 `.claude/`、`.github/copilot*`、`.gemini/` 等
+6. **AI 工具/Skill 配置**: 扫描 `AGENTS.md`、`.claude/CLAUDE.md`、`.agents/skills/`、`.claude/skills`、已有 `.codex/` 配置、`.github/copilot*`、`.gemini/` 等；工作区共享 Skill 以 `.agents/skills/` 为单源，`.claude/skills` 仅为工具兼容入口
 
-#### Step 0.3: 输出工作区现状报告
+#### 步骤 0.3：输出工作区现状报告
 
 以结构化 Markdown 输出当前工作区状态：
 
@@ -103,6 +112,7 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 - 发现的关键目录: [{dir1}, {dir2}, ...]
 - 发现的入口文件: [{file1}, {file2}, ...]
 - 发现的脚本: [{script1}, {script2}, ...]
+- AI 工具入口状态: {AGENTS.md 状态}；{.claude/CLAUDE.md 状态}；{.claude/skills 链接状态}
 - AI 工具/Skill 清单: [{skill1}, {skill2}, ...]
 
 ### 目录结构（实际）
@@ -117,6 +127,7 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 | {初始化脚本} 引用路径有效 | ✓ / ⚠ / ✗ | ... |
 | {工作区配置} folders 与实际目录匹配 | ✓ / ⚠ / ✗ | ... |
 | {配置目录} 与内容一致 | ✓ / ⚠ / ✗ | ... |
+| AI 工具入口与 Skill 单源一致 | ✓ / ⚠ / ✗ | ... |
 
 ### 发现的联动关系
 {输出运行时构建的联动矩阵}
@@ -185,11 +196,11 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 
 用户选择方案后执行，并同步检查联动更新。
 
-#### Step 3.1: 执行修改
+#### 步骤 3.1：执行修改
 
 根据用户选择的方案执行文件操作（创建、编辑、删除、移动）。
 
-#### Step 3.2: 联动检查（每次修改后必做）
+#### 步骤 3.2：联动检查（每次修改后必做）
 
 根据第〇阶段构建的"联动关系矩阵"，检查所有受影响文件是否需要更新。
 
@@ -201,11 +212,11 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 □ 初始化脚本    — 引用的文件路径是否有效、是否有新增步骤需要加入
 □ 忽略规则      — 新增物是否被恰当忽略、已删除物的规则是否冗余
 □ 项目/工作区配置 — 路径引用、workspace folders、构建目标是否需要更新
-□ AI 工具配置   — Skill 注册、自动化配置是否需要调整
+□ AI 工具配置   — `AGENTS.md`、`.claude/CLAUDE.md`、Skill 单源、工具专属配置是否需要调整
 □ IDE 配置      — 解释器路径、格式化范围是否需要调整
 ```
 
-#### Step 3.3: 联动文件修改确认
+#### 步骤 3.3：联动文件修改确认
 
 如果联动检查发现需要修改其他文件，以表格形式列出并让用户确认：
 
@@ -228,13 +239,13 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 
 所有修改和联动更新完成后，进行一次完整的最终审视。
 
-#### Step 4.1: 重新扫描
+#### 步骤 4.1：重新扫描
 
 ```bash
-# 与 Step 0.1 相同的扫描命令，对比变化
+# 与步骤 0.1 相同的扫描命令，对比变化
 ```
 
-#### Step 4.2: 一致性验证清单
+#### 步骤 4.2：一致性验证清单
 
 ```markdown
 ## 🔍 最终审视报告
@@ -255,6 +266,8 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 - [ ] 忽略规则文件覆盖了所有应忽略的文件/目录
 - [ ] 初始化脚本引用路径有效（逻辑审查）
 - [ ] 工作区配置（workspace folders / packages / workspaces）指向存在的目录
+- [ ] AI 工具入口一致：共享规则在 `AGENTS.md` / `README.md`，兼容入口未复制出另一套规则
+- [ ] 共享 Skill 单源一致：`.agents/skills/` 为唯一修改位置，`.claude/skills` 仍指向同一份内容
 - [ ] 没有断链引用（脚本路径、import 路径、配置路径等）
 - [ ] 所有新建文件有合适的注释/文档头部
 - [ ] {根据项目类型补充的其他检查项}
@@ -266,7 +279,7 @@ find . -maxdepth 4 -not -path './.git/*' | sort
 {对整体改动的评价：是否过度设计、是否有更简单的替代、是否与项目现有风格一致}
 ```
 
-#### Step 4.3: 输出审视结论
+#### 步骤 4.3：输出审视结论
 
 如果发现问题，再次生成修复方案让用户选择。如果一切正确，输出"审视通过"。
 
@@ -296,7 +309,7 @@ git commit -m "{建议的 commit message}"
 git push origin main
 \`\`\`
 
-### Commit Message 建议
+### 提交信息建议
 
 使用简单的一句话英文，格式：`[Tag] 简短描述`，参考项目已有提交记录风格，如 `[Doc] Update workspace docs and sync linked files`。
 ```
@@ -314,6 +327,7 @@ git push origin main
 5. **Git 只说不做**: 无论用户怎么要求，Skill 范围内不执行 `git add/commit/push/rebase` 等写操作。`git status` / `git diff` 等只读命令可以执行
 6. **方案拒绝兜底**: 如果用户拒绝了所有方案，根据反馈重新设计方案再提交
 7. **保持项目惯例**: 新增内容遵循项目现有风格（根据第〇阶段扫描识别的代码风格、文档语言、命名约定、注释格式等）。**编写或修改 Shell 脚本时，必须遵循附录 A《Shell 脚本编写规范》**——先阅读 `scripts/` 下的已有脚本作为参考，再动笔。
+8. **保持共享优先**: AI 工具相关通用规则写入 `AGENTS.md` / `README.md` / `.agents/skills/`，工具专属配置只在确有必要时放入对应目录。
 
 ---
 
