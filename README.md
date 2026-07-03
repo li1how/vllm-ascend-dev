@@ -19,7 +19,8 @@ vLLM Ascend 开发工作区
 │   ├── bootstrap.sh                  #   一键初始化脚本
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
-│   └── run-benchmark.sh              #   基准测试运行脚本
+│   ├── run-benchmark.sh              #   基准测试运行脚本
+│   └── setup-ssh-key.sh              #   SSH 密钥初始化与公钥安装
 ├── benchmark-outputs/                # 基准测试产物（不入仓库）
 ├── weekly-report/                    # 周报产出（不入仓库）
 ├── tmp/                              # 临时文件（不入仓库）
@@ -51,6 +52,7 @@ cd vllm-ascend-dev
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
+| `setup-ssh-key.sh` | 生成或复用本机 SSH 密钥，并安装公钥到远端服务器 | `-i <addr>` 远端 IP；`-u <name>` 远端用户（默认 root） |
 
 所有脚本均支持 `-h | --help` 查看完整用法。
 
