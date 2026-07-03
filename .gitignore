@@ -13,6 +13,7 @@
 /weekly-report/
 /docs/feature/
 /tmp/
+/vllm_profile/
 
 # === Secrets ===
 /.env

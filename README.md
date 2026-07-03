@@ -18,6 +18,7 @@ vLLM Ascend 开发工作区
 ├── scripts/                          # 辅助脚本
 │   ├── bootstrap.sh                  #   一键初始化脚本
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
+│   ├── profile-analyse.sh            #   vLLM profile 分析与归档
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
 │   ├── run-benchmark.sh              #   基准测试运行脚本
 │   └── setup-ssh-key.sh              #   SSH 密钥初始化与公钥安装
@@ -50,6 +51,7 @@ cd vllm-ascend-dev
 | ------ | ------ | --------- |
 | `bootstrap.sh` | 克隆代码仓库、配置 remote | `-b` 同时克隆 benchmark |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
+| `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-o <dir>` 归档目录 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
 | `setup-ssh-key.sh` | 生成或复用本机 SSH 密钥，并安装公钥到远端服务器 | `-i <addr>` 远端 IP；`-u <name>` 远端用户（默认 root） |
