@@ -2,9 +2,9 @@
 # ============================================================
 # vllm-ascend-dev 工作区一键初始化
 # 用法:
-#   ./bootstrap.sh                        # 默认初始化（不含 benchmark）
-#   ./bootstrap.sh -b | --with-benchmark  # 含 benchmark 仓库
-#   ./bootstrap.sh -h | --help            # 查看帮助
+#   ./scripts/bootstrap.sh                        # 默认初始化（不含 benchmark）
+#   ./scripts/bootstrap.sh -b | --with-benchmark  # 含 benchmark 仓库
+#   ./scripts/bootstrap.sh -h | --help            # 查看帮助
 # ============================================================
 
 set -e
@@ -35,9 +35,6 @@ echo " vllm-ascend-dev 工作区初始化"
 echo "============================================"
 echo ""
 
-# ---- 1. 克隆代码仓库 ----
-echo ">>> [1/2] 克隆代码仓库..."
-
 clone_if_missing() {
     local repo_url="$1"
     local dir_name="$2"
@@ -48,6 +45,35 @@ clone_if_missing() {
         git clone "$repo_url" "$SCRIPT_DIR/$dir_name"
     fi
 }
+
+init_file_from_template() {
+    local template_path="$1"
+    local target_path="$2"
+    local mode="${3:-}"
+
+    if [[ -e "$SCRIPT_DIR/$target_path" ]]; then
+        echo "  [SKIP] $target_path 已存在"
+        return
+    fi
+
+    mkdir -p "$(dirname "$SCRIPT_DIR/$target_path")"
+    cp "$SCRIPT_DIR/$template_path" "$SCRIPT_DIR/$target_path"
+    if [[ "$mode" == "executable" ]]; then
+        chmod +x "$SCRIPT_DIR/$target_path"
+    fi
+    echo "  [OK] 已从 $template_path 初始化 $target_path"
+}
+
+# ---- 1. 初始化本机配置 ----
+echo ">>> [1/3] 初始化本机配置..."
+
+init_file_from_template "templates/devcontainer.json.template" ".devcontainer/devcontainer.json"
+init_file_from_template "templates/server.sh.template" "scripts/server.sh" "executable"
+
+echo ""
+
+# ---- 2. 克隆代码仓库 ----
+echo ">>> [2/3] 克隆代码仓库..."
 
 clone_if_missing "https://github.com/vllm-project/vllm.git"        "vllm"
 clone_if_missing "https://github.com/vllm-project/vllm-ascend.git"  "vllm-ascend"
@@ -96,8 +122,8 @@ fi
 
 echo ""
 
-# ---- 2. 完成 ----
-echo ">>> [2/2] 完成"
+# ---- 3. 完成 ----
+echo ">>> [3/3] 完成"
 echo ""
 echo "============================================"
 echo " 初始化完成"
