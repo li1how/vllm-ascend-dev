@@ -10,6 +10,7 @@
 #   ./scripts/run-benchmark.sh -m | --model vllm_api_stream_chat            # 指定模型配置
 #   ./scripts/run-benchmark.sh -d | --dataset synthetic_gen -d gsm8k_gen    # 指定多个数据集
 #   ./scripts/run-benchmark.sh -d gpqa_gen -n 10                            # 测试前 10 条数据
+#   ./scripts/run-benchmark.sh -d synthetic_gen --mode perf                 # 性能测试
 # ============================================================
 
 set -e
@@ -22,6 +23,7 @@ export TORCH_DEVICE_BACKEND_AUTOLOAD=0
 MODEL_CONFIG="vllm_api_stream_chat"
 DATASETS=()
 NUM_PROMPTS=""
+MODE="all"
 
 # ---- 参数解析 ----
 print_help() {
@@ -31,6 +33,7 @@ print_help() {
     echo "  -m, --model <name>       模型配置名称（默认: vllm_api_stream_chat）"
     echo "  -d, --dataset <name>     数据集名称，可多次指定（默认: gsm8k_gen）"
     echo "  -n, --num-prompts <num>  每个数据集的测试条数，必须为正整数（默认: 全部）"
+    echo "      --mode <name>        运行模式（默认: all；性能测试使用 perf）"
     echo "  -h, --help               显示此帮助信息"
     echo ""
     echo "示例:"
@@ -38,6 +41,7 @@ print_help() {
     echo "  $0 -d synthetic_gen -d gsm8k_gen          # 多个数据集"
     echo "  $0 -m my_model -d gpqa_gen                # 自定义模型 + 数据集"
     echo "  $0 -d gpqa_gen -n 10                      # 测试前 10 条数据"
+    echo "  $0 -d synthetic_gen --mode perf           # 性能测试"
     echo ""
     echo "可用的数据集 (--dataset 参数):"
     echo ""
@@ -144,6 +148,8 @@ while [[ $# -gt 0 ]]; do
             DATASETS+=("$2"); shift 2 ;;
         -n|--num-prompts)
             NUM_PROMPTS="$2"; shift 2 ;;
+        --mode)
+            MODE="$2"; shift 2 ;;
         -h|--help)
             print_help ;;
         *)
@@ -186,6 +192,7 @@ echo "  Ais_Bench 基准测试"
 echo "  模型配置: ${MODEL_CONFIG}"
 echo "  数据集:   ${DATASETS[*]}"
 echo "  测试条数: ${NUM_PROMPTS:-全部（每个数据集）}"
+echo "  运行模式: ${MODE}"
 echo "  输出目录: ${BENCH_OUTPUT_DIR}"
 echo "========================================="
 
@@ -203,6 +210,7 @@ for DS in "${DATASETS[@]}"; do
     if python -m ais_bench.benchmark.cli.main \
         --models "${MODEL_CONFIG}" \
         --datasets "${DS}" \
+        --mode "${MODE}" \
         "${NUM_PROMPTS_ARGS[@]}" \
         --dump-eval-details \
         --summarizer example \
