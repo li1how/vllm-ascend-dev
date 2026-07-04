@@ -3,14 +3,14 @@
 # vLLM Profile 分析归档脚本
 #
 # 分析 vllm_profile 下的 torch_npu profile 目录，并在分析成功后
-# 将本次 profile 目录压缩和归档到独立时间戳目录。
+# 将本次 profile 目录压缩和归档到独立目录。
 # 需要在包含 torch_npu 的 Python/Conda 环境中运行。
 #
 # 用法:
 #   ./scripts/profile-analyse.sh                              # 分析 vllm_profile/*_ascend_pt
 #   ./scripts/profile-analyse.sh -p | --profile-dir <dir>     # 指定 profile 根目录
 #   ./scripts/profile-analyse.sh -g | --glob <pattern>        # 指定目录匹配模式
-#   ./scripts/profile-analyse.sh -o | --archive-root <dir>    # 指定归档目录
+#   ./scripts/profile-analyse.sh -n | --archive-name <name>   # 指定归档名称
 #   ./scripts/profile-analyse.sh -h | --help                  # 查看帮助
 # ============================================================
 
@@ -21,7 +21,7 @@ cd "$SCRIPT_DIR"
 # ---- 默认配置 ----
 PROFILE_DIR="vllm_profile"
 PROFILE_GLOB="*_ascend_pt"
-ARCHIVE_ROOT="vllm_profile/analysed"
+ARCHIVE_NAME=""
 
 # ---- 参数解析 ----
 print_help() {
@@ -30,13 +30,13 @@ print_help() {
     echo "选项:"
     echo "  -p, --profile-dir <dir>    profile 根目录（默认: vllm_profile）"
     echo "  -g, --glob <pattern>       目录匹配模式（默认: *_ascend_pt）"
-    echo "  -o, --archive-root <dir>   归档根目录（默认: vllm_profile/analysed）"
+    echo "  -n, --archive-name <name>  归档名称（默认: 当前时间戳）"
     echo "  -h, --help                 显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0                                      # 分析 vllm_profile/*_ascend_pt"
     echo "  $0 -p vllm_profile -g '*_ascend_pt'     # 指定匹配模式"
-    echo "  $0 -o vllm_profile/analysed             # 指定归档目录"
+    echo "  $0 -n run-qwen3-8b                      # 指定归档名称"
     exit 0
 }
 
@@ -57,9 +57,9 @@ while [[ $# -gt 0 ]]; do
         -g|--glob)
             require_option_value "$1" "${2:-}"
             PROFILE_GLOB="$2"; shift 2 ;;
-        -o|--archive-root)
+        -n|--archive-name)
             require_option_value "$1" "${2:-}"
-            ARCHIVE_ROOT="$2"; shift 2 ;;
+            ARCHIVE_NAME="$2"; shift 2 ;;
         -h|--help)
             print_help ;;
         *)
@@ -77,8 +77,20 @@ resolve_path() {
     fi
 }
 
+validate_archive_name() {
+    local name="$1"
+    if [[ "$name" == "." || "$name" == ".." || "$name" == *"/"* ]]; then
+        echo "[ERROR] 归档名称只能是目录名，不能包含 /，也不能是 . 或 ..: $name"
+        exit 1
+    fi
+}
+
 PROFILE_DIR="$(resolve_path "$PROFILE_DIR")"
-ARCHIVE_ROOT="$(resolve_path "$ARCHIVE_ROOT")"
+ARCHIVE_ROOT="$PROFILE_DIR/analysed"
+
+if [[ -n "$ARCHIVE_NAME" ]]; then
+    validate_archive_name "$ARCHIVE_NAME"
+fi
 
 if [[ ! -d "$PROFILE_DIR" ]]; then
     echo "[ERROR] profile 根目录不存在: $PROFILE_DIR"
@@ -111,7 +123,7 @@ echo "========================================="
 echo "  vLLM Profile 分析归档"
 echo "  profile 根目录: ${PROFILE_DIR}"
 echo "  匹配模式:       ${PROFILE_GLOB}"
-echo "  归档根目录:     ${ARCHIVE_ROOT}"
+echo "  归档名称:       ${ARCHIVE_NAME:-自动时间戳}"
 echo "  匹配数量:       ${#PROFILE_DIRS[@]}"
 echo "========================================="
 
@@ -138,7 +150,7 @@ make_archive_dir() {
 
 TIMESTAMP="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$ARCHIVE_ROOT"
-ARCHIVE_DIR="$(make_archive_dir "$TIMESTAMP")"
+ARCHIVE_DIR="$(make_archive_dir "${ARCHIVE_NAME:-$TIMESTAMP}")"
 ARCHIVE_ID="$(basename "$ARCHIVE_DIR")"
 ARCHIVE_FILE="$ARCHIVE_DIR/vllm-profile-$ARCHIVE_ID.tar.gz"
 
