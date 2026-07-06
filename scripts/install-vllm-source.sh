@@ -23,6 +23,7 @@ CONDA_ENV="vllm-ascend-dev"
 PYTHON_BIN=""
 SKIP_UNINSTALL=false
 INSTALL_MODE="all"
+VLLM_BUILD_REQUIREMENTS=(setuptools-rust)
 
 # ---- 参数解析 ----
 print_help() {
@@ -124,6 +125,9 @@ echo "============================================"
 echo "  Python: $("$PYTHON_BIN" -c 'import sys; print(sys.executable)')"
 echo "  组件:   ${PACKAGES[*]}"
 echo "  卸载:   $([[ "$SKIP_UNINSTALL" == true ]] && echo "跳过" || echo "执行")"
+if $INSTALL_VLLM; then
+    echo "  vllm 构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
+fi
 echo "============================================"
 echo ""
 
@@ -135,6 +139,11 @@ else
 fi
 
 if $INSTALL_VLLM; then
+    echo ""
+    ws_log_step "安装 vllm 源码构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
+    "$PYTHON_BIN" -m pip install "${VLLM_BUILD_REQUIREMENTS[@]}"
+    ws_log_ok "vllm 源码构建依赖安装完成"
+
     echo ""
     ws_log_step "从源码安装 vllm..."
     (
