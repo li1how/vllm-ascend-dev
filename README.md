@@ -21,6 +21,8 @@ vLLM Ascend 开发工作区
 │   ├── devcontainer.json.template    #   devcontainer 模板
 │   └── server.sh.template            #   vLLM 服务启动脚本模板
 ├── scripts/                          # 辅助脚本
+│   ├── lib/
+│   │   └── common.sh                  #   Bash 脚本公共函数库
 │   ├── bootstrap.sh                  #   一键初始化脚本
 │   ├── devcontainer-post-create.sh   #   Dev Container 创建后初始化
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
@@ -85,7 +87,14 @@ cd vllm-ascend-dev
 
 - `DEEPSEEK_API_KEY` — AI 翻译用 API Key，由 `preview-vllm-ascend-docs.sh` 读取
 
-### Conda 环境
+### Python 环境策略
+
+需要 Python 环境的工作区脚本会在运行时动态选择解释器：
+
+1. 优先尝试激活脚本对应的目标 conda 环境。
+2. 如果 `conda` 不可用、conda 初始化失败，或目标环境激活失败，则回退到当前可用的系统 Python。
+
+推荐的目标 conda 环境如下：
 
 | 环境名 | 用途 |
 | ------ | ------ |

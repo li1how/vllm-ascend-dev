@@ -10,8 +10,9 @@
 # ============================================================
 
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$SCRIPT_DIR"
+# shellcheck source=./lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
+ws_enter_workspace
 
 # ---- 参数解析 ----
 print_help() {
@@ -27,33 +28,35 @@ print_help() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -h|--help) print_help ;;
-        *) echo "[ERROR] 未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
+        *) ws_log_error "未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
 
+ws_require_commands git sed
+
 fix_atb_env() {
-    echo ">>> 修正 Ascend ATB 环境配置..."
+    ws_log_step "修正 Ascend ATB 环境配置..."
     local env_file
     local changed=false
 
     for env_file in /root/.bashrc /etc/profile; do
         if [[ ! -f "$env_file" ]]; then
-            echo "  [SKIP] $env_file 不存在"
+            ws_log_skip "$env_file 不存在"
             continue
         fi
 
         sed -i -E 's#^[[:space:]]*source /usr/local/Ascend/nnal/atb/set_env\.sh([[:space:]]+--cxx_abi=[01])?[[:space:]]*$#source /usr/local/Ascend/nnal/atb/set_env.sh --cxx_abi=0#' "$env_file"
-        echo "  [OK] $env_file 已检查"
+        ws_log_ok "$env_file 已检查"
         changed=true
     done
 
     if ! $changed; then
-        echo "  [SKIP] 未发现需要检查的环境文件"
+        ws_log_skip "未发现需要检查的环境文件"
     fi
 }
 
 configure_git_proxy() {
-    echo ">>> 配置 Git 代理..."
+    ws_log_step "配置 Git 代理..."
     local git_proxy="${devcontainer_proxy:-}"
 
     if [[ -z "$git_proxy" ]]; then
@@ -65,28 +68,28 @@ configure_git_proxy() {
     fi
 
     if [[ -z "$git_proxy" ]]; then
-        echo "  [SKIP] 未设置 devcontainer_proxy / http_proxy / https_proxy"
+        ws_log_skip "未设置 devcontainer_proxy / http_proxy / https_proxy"
         return
     fi
 
     git config --global http.proxy "$git_proxy"
-    echo "  [OK] git http.proxy 已配置"
+    ws_log_ok "git http.proxy 已配置"
 }
 
 configure_pip_index() {
-    echo ">>> 配置 pip 镜像..."
+    ws_log_step "配置 pip 镜像..."
 
-    if ! command -v pip &>/dev/null; then
-        echo "  [WARN] pip 未找到，跳过 pip 镜像配置"
+    if ! ws_command_exists pip; then
+        ws_log_warn "pip 未找到，跳过 pip 镜像配置"
         return
     fi
 
     pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
-    echo "  [OK] pip index-url 已配置"
+    ws_log_ok "pip index-url 已配置"
 }
 
 fix_atb_env
 configure_git_proxy
 configure_pip_index
 
-echo "[OK] devcontainer post-create 初始化完成"
+ws_log_ok "devcontainer post-create 初始化完成"

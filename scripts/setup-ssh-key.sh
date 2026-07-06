@@ -14,8 +14,9 @@
 # ============================================================
 
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$SCRIPT_DIR"
+# shellcheck source=./lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
+ws_enter_workspace
 
 # ---- 默认配置 ----
 IP=""
@@ -42,34 +43,25 @@ print_help() {
     exit 0
 }
 
-require_value() {
-    local opt="$1"
-    local value="${2:-}"
-    if [[ -z "$value" || "$value" == -* ]]; then
-        echo "[ERROR] $opt 需要参数值，使用 -h 查看帮助"
-        exit 1
-    fi
-}
-
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -i|--ip)
-            require_value "$1" "${2:-}"
+            ws_require_value "$1" "${2:-}"
             IP="$2"
             shift 2
             ;;
         -u|--user)
-            require_value "$1" "${2:-}"
+            ws_require_value "$1" "${2:-}"
             SSH_USER="$2"
             shift 2
             ;;
         -c|--comment)
-            require_value "$1" "${2:-}"
+            ws_require_value "$1" "${2:-}"
             COMMENT="$2"
             shift 2
             ;;
         -k|--key-file)
-            require_value "$1" "${2:-}"
+            ws_require_value "$1" "${2:-}"
             KEY_FILE="$2"
             shift 2
             ;;
@@ -77,24 +69,19 @@ while [[ $# -gt 0 ]]; do
             print_help
             ;;
         *)
-            echo "[ERROR] 未知参数: $1，使用 -h 查看帮助"
+            ws_log_error "未知参数: $1，使用 -h 查看帮助"
             exit 1
             ;;
     esac
 done
 
 if [[ -z "$IP" ]]; then
-    echo "[ERROR] 缺少必填参数: -i | --ip <addr>"
+    ws_log_error "缺少必填参数: -i | --ip <addr>"
     exit 1
 fi
 
 # ---- 环境检查 ----
-for cmd in ssh ssh-keygen; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "[ERROR] 缺少依赖: $cmd"
-        exit 1
-    fi
-done
+ws_require_commands ssh ssh-keygen
 
 KEY_DIR="$(dirname "$KEY_FILE")"
 PUB_KEY_FILE="${KEY_FILE}.pub"
@@ -119,27 +106,27 @@ echo "============================================"
 echo ""
 
 if [[ -f "$KEY_FILE" && -f "$PUB_KEY_FILE" ]]; then
-    echo "[INFO] 已存在密钥对，复用: $KEY_FILE"
+    ws_log_info "已存在密钥对，复用: $KEY_FILE"
 elif [[ -f "$KEY_FILE" ]]; then
-    echo "[INFO] 已存在私钥，恢复公钥: $PUB_KEY_FILE"
+    ws_log_info "已存在私钥，恢复公钥: $PUB_KEY_FILE"
     ssh-keygen -y -f "$KEY_FILE" > "$PUB_KEY_FILE"
 elif [[ -f "$PUB_KEY_FILE" ]]; then
-    echo "[ERROR] 已存在公钥但私钥缺失: $PUB_KEY_FILE"
+    ws_log_error "已存在公钥但私钥缺失: $PUB_KEY_FILE"
     echo "        请恢复私钥、删除孤立公钥，或用 -k | --key-file 指定其他路径"
     exit 1
 else
-    echo ">>> 生成 ed25519 SSH 密钥..."
+    ws_log_step "生成 ed25519 SSH 密钥..."
     ssh-keygen -t ed25519 -C "$COMMENT" -f "$KEY_FILE"
-    echo "[OK] 密钥已生成: $KEY_FILE"
+    ws_log_ok "密钥已生成: $KEY_FILE"
 fi
 
 if [[ ! -s "$PUB_KEY_FILE" ]]; then
-    echo "[ERROR] 公钥文件不存在或为空: $PUB_KEY_FILE"
+    ws_log_error "公钥文件不存在或为空: $PUB_KEY_FILE"
     exit 1
 fi
 
 echo ""
-echo ">>> 安装公钥到远端 authorized_keys..."
+ws_log_step "安装公钥到远端 authorized_keys..."
 ssh "$REMOTE_TARGET" '
 set -e
 mkdir -p ~/.ssh
@@ -148,12 +135,12 @@ touch ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 key="$(cat)"
 if grep -qxF "$key" ~/.ssh/authorized_keys; then
-    echo "[SKIP] 远端 authorized_keys 已包含该公钥"
+    echo "远端 authorized_keys 已包含该公钥"
 else
     printf "%s\n" "$key" >> ~/.ssh/authorized_keys
-    echo "[OK] 公钥已写入远端 authorized_keys"
+    echo "公钥已写入远端 authorized_keys"
 fi
 ' < "$PUB_KEY_FILE"
 
 echo ""
-echo "[OK] SSH 密钥初始化完成"
+ws_log_ok "SSH 密钥初始化完成"

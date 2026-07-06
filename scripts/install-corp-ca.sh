@@ -19,8 +19,9 @@
 # ============================================================
 
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$SCRIPT_DIR"
+# shellcheck source=./lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
+ws_enter_workspace
 shopt -s nullglob
 
 # ---- 默认配置 ----
@@ -49,18 +50,22 @@ print_help() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -p|--proxy) PROXY="$2"; shift 2 ;;
-        -H|--host)  TARGET_HOST="$2"; shift 2 ;;
+        -p|--proxy)
+            ws_require_value "$1" "${2:-}"
+            PROXY="$2"; shift 2 ;;
+        -H|--host)
+            ws_require_value "$1" "${2:-}"
+            TARGET_HOST="$2"; shift 2 ;;
         -f|--force) FORCE=true; shift ;;
         -h|--help)  print_help ;;
-        *) echo "[ERROR] 未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
+        *) ws_log_error "未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
 
 # ---- 环境检查 ----
 # root 权限：写入 /usr/local/share/ca-certificates + 调用 update-ca-certificates
 if [[ $EUID -ne 0 ]]; then
-    echo "[ERROR] 需要 root 权限安装系统 CA，请用 root 运行或加 sudo"
+    ws_log_error "需要 root 权限安装系统 CA，请用 root 运行或加 sudo"
     exit 1
 fi
 
@@ -69,7 +74,7 @@ if [[ -z "$PROXY" ]]; then
     PROXY="${https_proxy:-${HTTPS_PROXY:-}}"
 fi
 if [[ -z "$PROXY" ]]; then
-    echo "[ERROR] 未获取到代理地址，请设置 \$https_proxy 或用 -p | --proxy <host:port> 指定"
+    ws_log_error "未获取到代理地址，请设置 \$https_proxy 或用 -p | --proxy <host:port> 指定"
     exit 1
 fi
 # openssl s_client -proxy 需要 host:port（去 scheme 与路径）
@@ -77,17 +82,12 @@ PROXY_HP="${PROXY#http://}"
 PROXY_HP="${PROXY_HP#https://}"
 PROXY_HP="${PROXY_HP%%/*}"
 
-for cmd in openssl curl update-ca-certificates; do
-    if ! command -v "$cmd" &>/dev/null; then
-        echo "[ERROR] 缺少依赖: $cmd"
-        exit 1
-    fi
-done
+ws_require_commands openssl curl update-ca-certificates
 
 # ---- 幂等检查 ----
 if ! $FORCE; then
     if curl -sS -o /dev/null --max-time 10 --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
-        echo "[SKIP] 系统已信任公司代理 CA，无需重装（用 -f | --force 强制重装）"
+        ws_log_skip "系统已信任公司代理 CA，无需重装（用 -f | --force 强制重装）"
         exit 0
     fi
 fi
@@ -96,14 +96,14 @@ fi
 TMPDIR="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR"' EXIT
 
-echo ">>> 抓取公司代理 MITM 证书链 ($TARGET_HOST via $PROXY_HP)..."
+ws_log_step "抓取公司代理 MITM 证书链 ($TARGET_HOST via $PROXY_HP)..."
 if ! echo | openssl s_client -proxy "$PROXY_HP" -connect "$TARGET_HOST:443" \
         -servername "$TARGET_HOST" -showcerts 2>/dev/null > "$TMPDIR/chain.pem"; then
-    echo "[ERROR] openssl 抓取证书链失败（确认 openssl 支持 -proxy 且代理可达）"
+    ws_log_error "openssl 抓取证书链失败（确认 openssl 支持 -proxy 且代理可达）"
     exit 1
 fi
 if [[ ! -s "$TMPDIR/chain.pem" ]] || ! grep -q 'BEGIN CERTIFICATE' "$TMPDIR/chain.pem"; then
-    echo "[ERROR] 未获取到任何证书"
+    ws_log_error "未获取到任何证书"
     exit 1
 fi
 
@@ -122,25 +122,25 @@ for f in "$TMPDIR"/cert_*.pem; do
     fi
 done
 if [[ -z "$ROOT_CERT" ]]; then
-    echo "[ERROR] 证书链中未找到自签根 CA（代理可能未下发根证书）"
+    ws_log_error "证书链中未找到自签根 CA（代理可能未下发根证书）"
     exit 1
 fi
-echo "[INFO] 找到自签根 CA: $(openssl x509 -in "$ROOT_CERT" -noout -subject 2>/dev/null)"
+ws_log_info "找到自签根 CA: $(openssl x509 -in "$ROOT_CERT" -noout -subject 2>/dev/null)"
 
 # 安装到系统信任库
 CA_FILE="/usr/local/share/ca-certificates/${CA_NAME}.crt"
-echo ">>> 安装到 $CA_FILE ..."
+ws_log_step "安装到 $CA_FILE ..."
 cp "$ROOT_CERT" "$CA_FILE"
 chmod 644 "$CA_FILE"
 UPD_OUT="$(update-ca-certificates 2>&1 | grep -m1 -E '[0-9]+ added, [0-9]+ removed' || true)"
 [[ -z "$UPD_OUT" ]] && UPD_OUT="done"
-echo "[OK] update-ca-certificates: $UPD_OUT"
+ws_log_ok "update-ca-certificates: $UPD_OUT"
 
 # ---- 验证 ----
-echo ">>> 验证 TLS 信任..."
+ws_log_step "验证 TLS 信任..."
 if curl -sS -o /dev/null --max-time 15 --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
-    echo "[OK] 公司代理 CA 已安装并信任"
+    ws_log_ok "公司代理 CA 已安装并信任"
 else
-    echo "[ERROR] 安装后验证仍失败，请检查代理与证书链"
+    ws_log_error "安装后验证仍失败，请检查代理与证书链"
     exit 1
 fi

@@ -14,8 +14,9 @@
 # ============================================================
 
 set -e
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$SCRIPT_DIR"
+# shellcheck source=./lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
+ws_enter_workspace
 
 export TORCH_DEVICE_BACKEND_AUTOLOAD=0
 
@@ -24,6 +25,8 @@ MODEL_CONFIG="vllm_api_stream_chat"
 DATASETS=()
 NUM_PROMPTS=""
 MODE="all"
+CONDA_ENV="ais_bench"
+PYTHON_BIN=""
 
 # ---- 参数解析 ----
 print_help() {
@@ -143,17 +146,21 @@ print_help() {
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -m|--model)
+            ws_require_value "$1" "${2:-}"
             MODEL_CONFIG="$2"; shift 2 ;;
         -d|--dataset)
+            ws_require_value "$1" "${2:-}"
             DATASETS+=("$2"); shift 2 ;;
         -n|--num-prompts)
+            ws_require_value "$1" "${2:-}"
             NUM_PROMPTS="$2"; shift 2 ;;
         --mode)
+            ws_require_value "$1" "${2:-}"
             MODE="$2"; shift 2 ;;
         -h|--help)
             print_help ;;
         *)
-            echo "[ERROR] 未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
+            ws_log_error "未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
 
@@ -164,23 +171,14 @@ fi
 
 # ---- 环境检查 ----
 if [[ ! -d "$SCRIPT_DIR/benchmark" ]]; then
-    echo "[ERROR] benchmark 仓库未克隆"
+    ws_log_error "benchmark 仓库未克隆"
     echo "  请先运行: ./scripts/bootstrap.sh -b | --with-benchmark"
     exit 1
 fi
 
-# ---- conda 环境 ----
-if ! command -v conda &>/dev/null; then
-    echo "[ERROR] conda 未找到"
-    exit 1
-fi
-source "$HOME/miniconda3/etc/profile.d/conda.sh"
-conda activate ais_bench 2>/dev/null || {
-    echo "[ERROR] conda 环境 'ais_bench' 不存在"
-    exit 1
-}
-
+ws_select_python_env "$CONDA_ENV"
 export PYTHONPATH="$SCRIPT_DIR/benchmark${PYTHONPATH:+:$PYTHONPATH}"
+ws_require_python_module "ais_bench.benchmark.cli.main" "请先准备包含 ais_bench 依赖的 Python 环境"
 
 # ---- 输出目录 ----
 BENCH_OUTPUT_DIR="$SCRIPT_DIR/benchmark-outputs"
@@ -203,11 +201,11 @@ fi
 
 for DS in "${DATASETS[@]}"; do
     echo ""
-    echo ">>> 开始测试数据集: ${DS}"
+    ws_log_step "开始测试数据集: ${DS}"
 
     unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 
-    if python -m ais_bench.benchmark.cli.main \
+    if "$PYTHON_BIN" -m ais_bench.benchmark.cli.main \
         --models "${MODEL_CONFIG}" \
         --datasets "${DS}" \
         --mode "${MODE}" \
@@ -216,9 +214,9 @@ for DS in "${DATASETS[@]}"; do
         --summarizer example \
         --debug \
         -w "$BENCH_OUTPUT_DIR"; then
-        echo ">>> ${DS} 测试完成"
+        ws_log_ok "${DS} 测试完成"
     else
-        echo ">>> ${DS} 测试失败，退出"
+        ws_log_error "${DS} 测试失败，退出"
         exit 1
     fi
     echo "-----------------------------------------"
