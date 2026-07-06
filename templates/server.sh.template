@@ -96,7 +96,7 @@ vllm_cmd=(
   --additional-config '{
     "enable_fused_mc2": 0,
     "enable_flashcomm1": false,
-    "enable_balance_scheduling": false,
+    "enable_balance_scheduling": false
   }'
 
   # --async-scheduling
