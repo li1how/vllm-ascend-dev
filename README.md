@@ -12,14 +12,17 @@ vLLM Ascend 开发工作区
 │   ├── CLAUDE.md                     #   Claude Code 项目入口说明
 │   └── skills -> ../.agents/skills   #   Claude Code 兼容入口
 ├── .devcontainer/                    # Dev Container 本机配置（不入仓库）
-│   └── devcontainer.json             #   由 templates/devcontainer.json.template 生成
+│   └── devcontainer.json             #   Dev Container 本机配置（由模板生成，不入仓库）
 ├── .vscode/                          # VSCode 项目配置
+│   ├── launch.json                    #   VSCode 本机调试配置（由模板生成，不入仓库）
+│   └── settings.json                  #   VSCode 工作区设置
 ├── docs/                             # 开发文档与笔记
 │   ├── analysis/                     #   代码分析产出
 │   └── feature/                      #   特性开发笔记（不入仓库）
 ├── templates/                        # 本机配置模板（入仓库）
 │   ├── devcontainer.json.template    #   devcontainer 模板
-│   └── server.sh.template            #   vLLM 服务启动脚本模板
+│   ├── launch.json.template           #   VSCode 调试配置模板
+│   └── server.sh.template             #   vLLM 服务启动脚本模板
 ├── scripts/                          # 辅助脚本
 │   ├── lib/
 │   │   └── common.sh                  #   Bash 脚本公共函数库
@@ -58,9 +61,10 @@ cd vllm-ascend-dev
 首次运行 `bootstrap.sh` 时，会在目标文件缺失时从 `templates/` 复制本机配置：
 
 - `templates/devcontainer.json.template` → `.devcontainer/devcontainer.json`
+- `templates/launch.json.template` → `.vscode/launch.json`
 - `templates/server.sh.template` → `scripts/server.sh`
 
-生成后的 `.devcontainer/devcontainer.json` 和 `scripts/server.sh` 不入仓库。请按机器实际情况修改 devcontainer 镜像、权重挂载、代理地址，以及 server 本机 IP、设备号和模型路径。
+上述文件均由模板生成，不入仓库。请按机器实际情况修改 devcontainer 镜像、权重挂载、代理地址，以及 VSCode/server 本机 IP、设备号和模型路径。
 `server.sh` 会通过 `ifconfig` 根据本机 IP 自动获取网卡名；如需手动指定，可修改脚本中的 `nic_name`。
 `server.sh` 默认将 vLLM 输出保存到 `log/vllm_<timestamp>.log`；如需调整路径，可修改脚本中的 `LOG_DIR` 或 `LOGFILE`。
 
@@ -74,7 +78,7 @@ cd vllm-ascend-dev
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
-| `server.sh` | 启动本机 vLLM 服务（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
+| `server.sh` | 本机 vLLM 服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
 | `setup-ssh-key.sh` | 生成或复用本机 SSH 密钥，并安装公钥到远端服务器 | `-i <addr>` 远端 IP；`-u <name>` 远端用户（默认 root） |
 
 所有脚本均支持 `-h | --help` 查看完整用法。

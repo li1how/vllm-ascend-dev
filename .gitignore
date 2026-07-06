@@ -18,6 +18,7 @@
 
 # === 本机配置（由 templates/ 初始化，不入仓库）===
 /.devcontainer/devcontainer.json
+/.vscode/launch.json
 /scripts/server.sh
 
 # === Secrets ===

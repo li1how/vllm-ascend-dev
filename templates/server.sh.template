@@ -72,7 +72,7 @@ mkdir -p "$(dirname "$LOGFILE")"
 cd "$SCRIPT_DIR/vllm"
 
 vllm_cmd=(
-  vllm serve /home/weight/Qwen3.5-35B-A3B-w8a8-org/
+  vllm serve /home/weight/Qwen3.5-35B-A3B/
   --host 0.0.0.0
   --port 2723
   --served-model-name model

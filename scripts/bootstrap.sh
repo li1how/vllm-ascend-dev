@@ -71,6 +71,7 @@ init_file_from_template() {
 ws_log_step "[1/3] 初始化本机配置..."
 
 init_file_from_template "templates/devcontainer.json.template" ".devcontainer/devcontainer.json"
+init_file_from_template "templates/launch.json.template" ".vscode/launch.json"
 init_file_from_template "templates/server.sh.template" "scripts/server.sh" "executable"
 
 echo ""
