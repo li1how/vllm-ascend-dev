@@ -1,0 +1,4 @@
+interface:
+  display_name: "Weekly Report"
+  short_description: "Draft vLLM-Ascend weekly reports"
+  default_prompt: "Use $weekly-report to turn my notes into a polished vLLM-Ascend weekly report."

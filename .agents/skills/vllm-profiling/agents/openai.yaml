@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM Profiling"
+  short_description: "Profile vLLM and guide optimization"
+  default_prompt: "Use $vllm-profiling to profile a vLLM workload and identify optimization opportunities."

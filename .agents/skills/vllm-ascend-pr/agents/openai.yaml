@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM Ascend PR"
+  short_description: "Prepare vLLM Ascend PRs safely"
+  default_prompt: "Use $vllm-ascend-pr to prepare, validate, and publish a vLLM Ascend pull request."

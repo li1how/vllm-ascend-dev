@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Analysis"
+  short_description: "Analyze vLLM modules with diagrams"
+  default_prompt: "Use $code-analysis to analyze a vLLM or vLLM-Ascend module and produce a structured Markdown report."
