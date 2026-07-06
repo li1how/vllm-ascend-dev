@@ -14,6 +14,10 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
 ws_enter_workspace
 
+# ---- 默认配置 ----
+DEFAULT_GIT_USER_NAME="leolee"
+DEFAULT_GIT_USER_EMAIL="yihao.li@huawei.com"
+
 # ---- 参数解析 ----
 print_help() {
     echo "用法: $0 [选项]"
@@ -76,6 +80,21 @@ configure_git_proxy() {
     ws_log_ok "git http.proxy 已配置"
 }
 
+configure_git_identity() {
+    ws_log_step "配置 Git 用户信息..."
+    local git_user_name="${devcontainer_git_user_name:-${DEVCONTAINER_GIT_USER_NAME:-$DEFAULT_GIT_USER_NAME}}"
+    local git_user_email="${devcontainer_git_user_email:-${DEVCONTAINER_GIT_USER_EMAIL:-$DEFAULT_GIT_USER_EMAIL}}"
+
+    if [[ -z "$git_user_name" || -z "$git_user_email" ]]; then
+        ws_log_skip "未设置 Git user.name / user.email"
+        return
+    fi
+
+    git config --global user.name "$git_user_name"
+    git config --global user.email "$git_user_email"
+    ws_log_ok "git user.name / user.email 已配置"
+}
+
 configure_pip_index() {
     ws_log_step "配置 pip 镜像..."
 
@@ -90,6 +109,7 @@ configure_pip_index() {
 
 fix_atb_env
 configure_git_proxy
+configure_git_identity
 configure_pip_index
 
 ws_log_ok "devcontainer post-create 初始化完成"
