@@ -34,7 +34,6 @@
                 "openai.chatgpt",
                 "Anthropic.claude-code",
                 "ms-python.python",
-                "ms-python.mypy-type-checker",
                 "charliermarsh.ruff",
                 "eamodio.gitlens"
             ]
