@@ -6,7 +6,7 @@
 # 根 CA 重新签发证书。未信任该 CA 时，curl / codex / git 等会报
 #   "SSL certificate problem: self-signed certificate in certificate chain"
 # 本脚本从代理实时抓取该自签根 CA，安装到系统信任库
-# (update-ca-certificates)，使 TLS 校验恢复正常。
+# (update-ca-certificates / update-ca-trust)，使 TLS 校验恢复正常。
 #
 # 适用场景: devcontainer 重建后 codex login / curl 证书失败时运行；
 #           建议加入 devcontainer postCreateCommand 自动执行。
@@ -28,7 +28,7 @@ shopt -s nullglob
 PROXY=""                         # 从 $https_proxy/$HTTPS_PROXY 读取，可用 -p 覆盖
 TARGET_HOST="auth.openai.com"    # 抓取 MITM 证书用的目标主机
 FORCE=false
-CA_NAME="corp-proxy-ca"          # 安装到 /usr/local/share/ca-certificates/<name>.crt
+CA_NAME="corp-proxy-ca"          # 安装文件名: <name>.crt，目录按系统信任库选择
 
 # ---- 参数解析 ----
 print_help() {
@@ -82,7 +82,20 @@ PROXY_HP="${PROXY#http://}"
 PROXY_HP="${PROXY_HP#https://}"
 PROXY_HP="${PROXY_HP%%/*}"
 
-ws_require_commands openssl curl update-ca-certificates
+ws_require_commands openssl curl
+
+if ws_command_exists update-ca-certificates; then
+    CA_STORE="debian"
+    CA_FILE="/usr/local/share/ca-certificates/${CA_NAME}.crt"
+elif ws_command_exists update-ca-trust; then
+    CA_STORE="rhel"
+    CA_FILE="/etc/pki/ca-trust/source/anchors/${CA_NAME}.crt"
+else
+    ws_log_error "缺少系统 CA 刷新命令: update-ca-certificates 或 update-ca-trust"
+    echo "  Debian/Ubuntu: apt install ca-certificates"
+    echo "  RHEL/CentOS/openEuler: yum install ca-certificates"
+    exit 1
+fi
 
 # ---- 幂等检查 ----
 if ! $FORCE; then
@@ -127,14 +140,26 @@ if [[ -z "$ROOT_CERT" ]]; then
 fi
 ws_log_info "找到自签根 CA: $(openssl x509 -in "$ROOT_CERT" -noout -subject 2>/dev/null)"
 
-# 安装到系统信任库
-CA_FILE="/usr/local/share/ca-certificates/${CA_NAME}.crt"
 ws_log_step "安装到 $CA_FILE ..."
+mkdir -p "$(dirname "$CA_FILE")"
 cp "$ROOT_CERT" "$CA_FILE"
 chmod 644 "$CA_FILE"
-UPD_OUT="$(update-ca-certificates 2>&1 | grep -m1 -E '[0-9]+ added, [0-9]+ removed' || true)"
-[[ -z "$UPD_OUT" ]] && UPD_OUT="done"
-ws_log_ok "update-ca-certificates: $UPD_OUT"
+case "$CA_STORE" in
+    debian)
+        UPD_OUT="$(update-ca-certificates 2>&1 | grep -m1 -E '[0-9]+ added, [0-9]+ removed' || true)"
+        [[ -z "$UPD_OUT" ]] && UPD_OUT="done"
+        ws_log_ok "update-ca-certificates: $UPD_OUT"
+        ;;
+    rhel)
+        if ! UPD_OUT="$(update-ca-trust extract 2>&1)"; then
+            ws_log_error "update-ca-trust extract 失败"
+            [[ -n "$UPD_OUT" ]] && echo "$UPD_OUT"
+            exit 1
+        fi
+        [[ -z "$UPD_OUT" ]] && UPD_OUT="done"
+        ws_log_ok "update-ca-trust extract: $UPD_OUT"
+        ;;
+esac
 
 # ---- 验证 ----
 ws_log_step "验证 TLS 信任..."
