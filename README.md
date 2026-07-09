@@ -21,6 +21,7 @@ vLLM Ascend 开发工作区
 │   └── feature/                      #   特性开发笔记（不入仓库）
 ├── templates/                        # 本机配置模板（入仓库）
 │   ├── devcontainer.json.template    #   devcontainer 模板
+│   ├── env.template                  #   统一环境变量模板
 │   ├── launch.json.template           #   VSCode 调试配置模板
 │   └── server.sh.template             #   vLLM 服务启动脚本模板
 ├── scripts/                          # 辅助脚本
@@ -41,7 +42,7 @@ vLLM Ascend 开发工作区
 ├── weekly-report/                    # 周报产出（不入仓库）
 ├── tmp/                              # 临时文件（不入仓库）
 ├── pkg/                              # 大二进制包（不入仓库）
-├── .env                              # 统一环境变量（不入仓库）
+├── .env                              # 统一环境变量（由模板生成，不入仓库）
 ├── .gitignore
 ├── vllm/                             # [克隆] vLLM 上游仓库
 ├── vllm-ascend/                      # [克隆] vLLM Ascend 插件仓库
@@ -63,10 +64,11 @@ cd vllm-ascend-dev
 首次运行 `bootstrap.sh` 时，会在目标文件缺失时从 `templates/` 复制本机配置：
 
 - `templates/devcontainer.json.template` → `.devcontainer/devcontainer.json`
+- `templates/env.template` → `.env`
 - `templates/launch.json.template` → `.vscode/launch.json`
 - `templates/server.sh.template` → `scripts/server.sh`
 
-上述文件均由模板生成，不入仓库。请按机器实际情况修改 devcontainer 镜像、权重挂载、代理地址，以及 VSCode/server 本机 IP、设备号和模型路径。
+上述文件均由模板生成，不入仓库。请按机器实际情况修改 devcontainer 镜像、权重挂载、代理地址，VSCode/server 本机 IP、设备号和模型路径，以及 `.env` 中的 API Key / 通知 Key。
 `server.sh` 会通过 `ifconfig` 根据本机 IP 自动获取网卡名；如需手动指定，可修改脚本中的 `nic_name`。
 `server.sh` 默认将 vLLM 输出保存到 `log/vllm_<timestamp>.log`；如需调整路径，可修改脚本中的 `LOG_DIR` 或 `LOGFILE`。
 
@@ -93,6 +95,7 @@ cd vllm-ascend-dev
 
 `.env` 文件存放统一环境变量，脚本启动时自动加载。主要变量：
 
+- `BARK_KEY` — Bark 通知用 Key
 - `DEEPSEEK_API_KEY` — AI 翻译用 API Key，由 `preview-vllm-ascend-docs.sh` 读取
 
 ### Python 环境策略
