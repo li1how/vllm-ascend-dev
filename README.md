@@ -28,6 +28,7 @@ vLLM Ascend 开发工作区
 │   ├── lib/
 │   │   └── common.sh                  #   Bash 脚本公共函数库
 │   ├── bootstrap.sh                  #   一键初始化脚本
+│   ├── configure-bark-mcp.sh         #   配置/卸载 Codex / Claude Code 全局 Bark MCP
 │   ├── devcontainer-post-create.sh   #   Dev Container 创建后初始化
 │   ├── install-ascend-stack.sh       #   从 pkg/ 按项安装 CANN / torch_npu / triton_ascend
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
@@ -77,8 +78,9 @@ cd vllm-ascend-dev
 | 脚本 | 用途 | 常用参数 |
 | ------ | ------ | --------- |
 | `bootstrap.sh` | 初始化本机配置、克隆代码仓库、配置 remote | `-b` 同时克隆 benchmark |
+| `configure-bark-mcp.sh` | 配置/卸载官方 Bark HTTP MCP 到 Codex / Claude Code 全局配置 | `-t codex/claude/all` 指定目标；`-k <key>` 直接传入 Bark key；`-f` 覆盖已有 `bark`；`-u` 卸载 |
 | `devcontainer-post-create.sh` | Dev Container 创建后初始化通用环境 | 由 devcontainer 自动调用 |
-| `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir|version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
+| `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
 | `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | `-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
@@ -95,7 +97,7 @@ cd vllm-ascend-dev
 
 `.env` 文件存放统一环境变量，脚本启动时自动加载。主要变量：
 
-- `BARK_KEY` — Bark 通知用 Key
+- `BARK_KEY` — Bark 通知用 Key，由 `configure-bark-mcp.sh` 默认读取；也可通过脚本 `-k | --key` 参数传入
 - `DEEPSEEK_API_KEY` — AI 翻译用 API Key，由 `preview-vllm-ascend-docs.sh` 读取
 
 ### Python 环境策略

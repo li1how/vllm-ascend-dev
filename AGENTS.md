@@ -18,6 +18,17 @@ vLLM Ascend 多仓库开发工作区。
 
 - 网络 / SSL：公司代理有自签证书，正常情况系统已配置；部分 Python 包（如 certifi）自带 CA bundle，需设置 `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`
 
+## 通知规则
+
+长任务结束或任务因预期外问题阻塞/失败时，使用 Bark MCP 通知用户。
+
+- **需要通知**：预计或实际耗时 10 分钟及以上的任务完成；长任务运行一段时间后失败且不能立即自行修复；需要用户介入、权限、网络、依赖或外部系统恢复的阻塞。
+- **不通知**：2 分钟内的早期失败，例如参数错误、命令不存在、短 lint/test 失败；Agent 能立即自行修复并继续推进的问题；普通澄清问题、普通最终回复、短任务完成。
+- **分组**：Codex 使用 `group=agent-codex`；Claude Code 使用 `group=agent-claude-code`；来源不明时使用 `group=agent`。
+- **字段**：`title` 写 `Codex: 长任务完成`、`Codex: 任务阻塞`、`Claude Code: 长任务失败` 等；`subtitle` 写工作区或子仓库名；`body` 简洁写明任务、状态、结果或阻塞原因、需要用户做什么；`group` 按分组规则填写；`level` 完成用 `active`，阻塞/失败用 `timeSensitive`；`url` 只填写安全且有用的 PR/CI 等网页链接，不放敏感地址或本地 secret。
+- **示例**：完成通知 `title=Codex: 长任务完成`，`subtitle=vllm-ascend-dev`，`body=profile 分析已完成，结果文档已生成，最终回复包含路径。`，`group=agent-codex`，`level=active`。
+- **示例**：阻塞通知 `title=Codex: 任务阻塞`，`subtitle=vllm-ascend-dev`，`body=Bark MCP 配置遇到网络阻塞，需要确认是否允许沙箱外验证。`，`group=agent-codex`，`level=timeSensitive`。
+
 ## 约束
 
 - **不确定目录归属先询问**。跨仓库改动时，先确认目标目录再动手。
