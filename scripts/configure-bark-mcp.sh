@@ -2,8 +2,9 @@
 # ============================================================
 # 配置/卸载全局 Bark MCP
 #
-# 使用 Bark 官方 HTTP MCP，为 Codex 和 Claude Code 写入全局 MCP 配置。
+# 使用 Bark 官方 HTTP MCP，为 Codex 和 Claude Code 配置全局 Bark MCP。
 # 默认从 .env 读取 BARK_KEY，并把实际 key 写入全局 MCP URL。
+# 默认优先使用 codex / claude CLI；CLI 不存在时回退配置文件 helper。
 #
 # 用法:
 #   ./scripts/configure-bark-mcp.sh                         # 配置 Codex + Claude Code
@@ -28,6 +29,11 @@ BARK_KEY_SOURCE=""
 BARK_MCP_URL=""
 SAFE_BARK_MCP_URL="https://api.day.app/mcp/<BARK_KEY>"
 CODEX_BARK_AUTH_HEADER="Bearer bark-url-auth"
+CONDA_ENV="vllm-ascend-dev"
+BARK_MCP_CONFIG_HELPER="$SCRIPT_DIR/scripts/lib/bark_mcp_config_helper.py"
+CODEX_BACKEND=""
+CLAUDE_BACKEND=""
+HELPER_REQUIRED=false
 
 # ---- 参数解析 ----
 print_help() {
@@ -41,6 +47,8 @@ print_help() {
     echo "  -h, --help                       显示此帮助信息"
     echo ""
     echo "说明:"
+    echo "  优先使用 codex / claude CLI；对应 CLI 不存在时回退 Python helper。"
+    echo "  helper 直接修改 ~/.codex/config.toml 或 ~/.claude.json，需要 Python 3.11+。"
     echo "  写入全局配置的真实 URL 会包含 Bark key；日志仅显示脱敏 URL。"
     echo "  通过 -k 传入 key 可能进入 shell history，通常优先使用 .env。"
     echo ""
@@ -111,11 +119,30 @@ elif [[ -n "$BARK_KEY_ARG" ]]; then
 fi
 
 if [[ "$TARGET" == "codex" || "$TARGET" == "all" ]]; then
-    ws_require_commands codex
+    if ws_command_exists codex; then
+        CODEX_BACKEND="cli"
+    else
+        CODEX_BACKEND="helper"
+        HELPER_REQUIRED=true
+    fi
 fi
 
 if [[ "$TARGET" == "claude" || "$TARGET" == "all" ]]; then
-    ws_require_commands claude
+    if ws_command_exists claude; then
+        CLAUDE_BACKEND="cli"
+    else
+        CLAUDE_BACKEND="helper"
+        HELPER_REQUIRED=true
+    fi
+fi
+
+if $HELPER_REQUIRED; then
+    ws_select_python_env "$CONDA_ENV"
+    ws_require_python_module "tomllib" "请使用 Python 3.11 或更高版本"
+    if [[ ! -f "$BARK_MCP_CONFIG_HELPER" ]]; then
+        ws_log_error "缺少 Bark MCP 配置 helper: $BARK_MCP_CONFIG_HELPER"
+        exit 1
+    fi
 fi
 
 sanitize_output() {
@@ -140,6 +167,10 @@ run_safely() {
 
 codex_mcp_exists() {
     codex mcp get bark --json &>/dev/null
+}
+
+claude_mcp_exists() {
+    claude mcp get bark &>/dev/null
 }
 
 restore_codex_config() {
@@ -169,7 +200,7 @@ restore_codex_config() {
     ws_log_warn "已恢复安装前的 Codex 配置"
 }
 
-abort_codex_configuration() {
+abort_codex_cli_configuration() {
     local label="$1"
     local output="$2"
     local config_file="$3"
@@ -184,13 +215,9 @@ abort_codex_configuration() {
     exit 1
 }
 
-claude_mcp_exists() {
-    claude mcp get bark &>/dev/null
-}
-
-configure_codex() {
-    ws_log_step "配置 Codex 全局 Bark MCP"
-    local codex_config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
+configure_codex_with_cli() {
+    ws_log_step "配置 Codex 全局 Bark MCP（CLI）"
+    local config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
     local backup_file
     local bark_existed=false
     local config_existed=false
@@ -209,9 +236,9 @@ configure_codex() {
         ws_log_error "创建 Codex 配置备份失败"
         exit 1
     fi
-    if [[ -f "$codex_config_file" ]]; then
+    if [[ -f "$config_file" ]]; then
         config_existed=true
-        if ! output="$(cp -p -- "$codex_config_file" "$backup_file" 2>&1)"; then
+        if ! output="$(cp -p -- "$config_file" "$backup_file" 2>&1)"; then
             ws_log_error "备份 Codex 配置失败"
             sanitize_output "$output"
             rm -f -- "$backup_file"
@@ -221,64 +248,58 @@ configure_codex() {
 
     if $bark_existed; then
         if ! output="$(codex mcp remove bark 2>&1)"; then
-            abort_codex_configuration \
+            abort_codex_cli_configuration \
                 "移除 Codex bark MCP 失败" "$output" \
-                "$codex_config_file" "$backup_file" "$config_existed"
+                "$config_file" "$backup_file" "$config_existed"
         fi
     fi
 
     if ! output="$(codex mcp add bark --url "$BARK_MCP_URL" 2>&1)"; then
-        abort_codex_configuration \
+        abort_codex_cli_configuration \
             "添加 Codex bark MCP 失败" "$output" \
-            "$codex_config_file" "$backup_file" "$config_existed"
+            "$config_file" "$backup_file" "$config_existed"
     fi
 
-    # Compatibility workaround for https://github.com/openai/codex/issues/22667:
-    # a static, non-sensitive marker makes Codex skip broken OAuth discovery.
     if ! output="$({
         printf '\n'
         printf '# Compatibility workaround for https://github.com/openai/codex/issues/22667\n'
         printf '[mcp_servers.bark.http_headers]\n'
         printf 'Authorization = "%s"\n' "$CODEX_BARK_AUTH_HEADER"
-    } 2>&1 >> "$codex_config_file")"; then
-        abort_codex_configuration \
+    } 2>&1 >> "$config_file")"; then
+        abort_codex_cli_configuration \
             "写入 Codex Bark 兼容 Header 失败" "$output" \
-            "$codex_config_file" "$backup_file" "$config_existed"
+            "$config_file" "$backup_file" "$config_existed"
     fi
 
-    if ! codex_status="$(codex --strict-config mcp get bark --json 2>&1)"; then
-        if [[ "$codex_status" == *'`--strict-config` is not supported for `codex mcp`'* ]]; then
-            ws_log_warn "当前 Codex 不支持 mcp 子命令的 --strict-config，回退到普通 TOML 解析及 URL/Header 字段校验"
-            if ! codex_status="$(codex mcp get bark --json 2>&1)"; then
-                abort_codex_configuration \
-                    "解析 Codex Bark MCP 配置失败" "$codex_status" \
-                    "$codex_config_file" "$backup_file" "$config_existed"
-            fi
-        else
-            abort_codex_configuration \
-                "严格解析 Codex Bark MCP 配置失败" "$codex_status" \
-                "$codex_config_file" "$backup_file" "$config_existed"
-        fi
+    if ! codex_status="$(codex mcp get bark --json 2>&1)"; then
+        abort_codex_cli_configuration \
+            "解析 Codex Bark MCP 配置失败" "$codex_status" \
+            "$config_file" "$backup_file" "$config_existed"
     fi
     if [[ "$codex_status" != *"\"url\": \"$BARK_MCP_URL\""* ||
           "$codex_status" != *"\"Authorization\": \"$CODEX_BARK_AUTH_HEADER\""* ]]; then
-        abort_codex_configuration \
+        abort_codex_cli_configuration \
             "Codex Bark MCP URL 或兼容 Header 验证失败" "" \
-            "$codex_config_file" "$backup_file" "$config_existed"
+            "$config_file" "$backup_file" "$config_existed"
+    fi
+
+    if ! output="$(chmod 600 "$config_file" 2>&1)"; then
+        abort_codex_cli_configuration \
+            "收紧 Codex 配置文件权限失败" "$output" \
+            "$config_file" "$backup_file" "$config_existed"
     fi
 
     if ! output="$(rm -f -- "$backup_file" 2>&1)"; then
-        abort_codex_configuration \
+        abort_codex_cli_configuration \
             "清理 Codex 配置备份失败" "$output" \
-            "$codex_config_file" "$backup_file" "$config_existed"
+            "$config_file" "$backup_file" "$config_existed"
     fi
 
-    ws_log_ok "Codex Bark MCP 已配置"
-    ws_log_info "请在 VS Code 中执行 Reload Window 后再创建新会话"
+    ws_log_ok "Codex Bark MCP 已通过 CLI 配置"
 }
 
-configure_claude() {
-    ws_log_step "配置 Claude Code user-scope Bark MCP"
+configure_claude_with_cli() {
+    ws_log_step "配置 Claude Code user-scope Bark MCP（CLI）"
     local claude_status
 
     if claude_mcp_exists; then
@@ -301,28 +322,156 @@ configure_claude() {
         ws_log_error "Claude Code 未能连接 Bark MCP，请检查 Bark key 或当前网络"
         exit 1
     fi
-    ws_log_ok "Claude Code Bark MCP 已配置"
+
+    if [[ -f "$HOME/.claude.json" ]]; then
+        run_safely "收紧 Claude Code 配置文件权限" chmod 600 "$HOME/.claude.json"
+    fi
+    ws_log_ok "Claude Code Bark MCP 已通过 CLI 配置"
 }
 
-uninstall_codex() {
-    ws_log_step "卸载 Codex 全局 Bark MCP"
+uninstall_codex_with_cli() {
+    ws_log_step "卸载 Codex 全局 Bark MCP（CLI）"
 
     if codex_mcp_exists; then
         run_safely "移除 Codex bark MCP" codex mcp remove bark
-        ws_log_ok "Codex Bark MCP 已卸载"
+        ws_log_ok "Codex Bark MCP 已通过 CLI 卸载"
     else
         ws_log_skip "Codex bark MCP 不存在"
     fi
 }
 
-uninstall_claude() {
-    ws_log_step "卸载 Claude Code user-scope Bark MCP"
+uninstall_claude_with_cli() {
+    ws_log_step "卸载 Claude Code user-scope Bark MCP（CLI）"
 
     if claude_mcp_exists; then
         run_safely "移除 Claude Code bark MCP" claude mcp remove --scope user bark
-        ws_log_ok "Claude Code Bark MCP 已卸载"
+        ws_log_ok "Claude Code Bark MCP 已通过 CLI 卸载"
     else
         ws_log_skip "Claude Code bark MCP 不存在"
+    fi
+}
+
+edit_config_file() {
+    local config_kind="$1"
+    local config_file="$2"
+    local output
+    local status
+    local helper_args=("$config_kind" "$ACTION" "$config_file")
+
+    if $FORCE; then
+        helper_args+=("--force")
+    fi
+
+    if output="$(
+        BARK_MCP_URL_VALUE="$BARK_MCP_URL" \
+        CODEX_BARK_AUTH_HEADER_VALUE="$CODEX_BARK_AUTH_HEADER" \
+        "$PYTHON_BIN" "$BARK_MCP_CONFIG_HELPER" "${helper_args[@]}" 2>&1
+    )"; then
+        echo "$output"
+        return 0
+    else
+        status=$?
+        if [[ $status -eq 3 ]]; then
+            return 3
+        fi
+        sanitize_output "$output" >&2
+        return "$status"
+    fi
+}
+
+configure_codex_with_helper() {
+    ws_log_step "配置 Codex 全局 Bark MCP（helper）"
+    local config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
+    local result
+
+    if result="$(edit_config_file "codex" "$config_file")"; then
+        ws_log_ok "Codex Bark MCP 已写入: $config_file"
+    elif [[ $? -eq 3 ]]; then
+        ws_log_error "Codex 已存在名为 bark 的 MCP；如需覆盖请加 -f | --force"
+        exit 1
+    else
+        ws_log_error "修改 Codex Bark MCP 配置失败"
+        exit 1
+    fi
+}
+
+configure_claude_with_helper() {
+    ws_log_step "配置 Claude Code user-scope Bark MCP（helper）"
+    local config_file="$HOME/.claude.json"
+    local result
+
+    if result="$(edit_config_file "claude" "$config_file")"; then
+        ws_log_ok "Claude Code Bark MCP 已写入: $config_file"
+    elif [[ $? -eq 3 ]]; then
+        ws_log_error "Claude Code 已存在名为 bark 的 MCP；如需覆盖请加 -f | --force"
+        exit 1
+    else
+        ws_log_error "修改 Claude Code Bark MCP 配置失败"
+        exit 1
+    fi
+}
+
+uninstall_codex_with_helper() {
+    ws_log_step "卸载 Codex 全局 Bark MCP（helper）"
+    local config_file="${CODEX_HOME:-$HOME/.codex}/config.toml"
+    local result
+
+    if ! result="$(edit_config_file "codex" "$config_file")"; then
+        ws_log_error "修改 Codex Bark MCP 配置失败"
+        exit 1
+    fi
+    if [[ "$result" == "absent" ]]; then
+        ws_log_skip "Codex bark MCP 不存在"
+    else
+        ws_log_ok "Codex Bark MCP 已卸载"
+    fi
+}
+
+uninstall_claude_with_helper() {
+    ws_log_step "卸载 Claude Code user-scope Bark MCP（helper）"
+    local config_file="$HOME/.claude.json"
+    local result
+
+    if ! result="$(edit_config_file "claude" "$config_file")"; then
+        ws_log_error "修改 Claude Code Bark MCP 配置失败"
+        exit 1
+    fi
+    if [[ "$result" == "absent" ]]; then
+        ws_log_skip "Claude Code bark MCP 不存在"
+    else
+        ws_log_ok "Claude Code Bark MCP 已卸载"
+    fi
+}
+
+configure_codex() {
+    if [[ "$CODEX_BACKEND" == "cli" ]]; then
+        configure_codex_with_cli
+    else
+        configure_codex_with_helper
+    fi
+}
+
+configure_claude() {
+    if [[ "$CLAUDE_BACKEND" == "cli" ]]; then
+        configure_claude_with_cli
+    else
+        configure_claude_with_helper
+    fi
+}
+
+uninstall_codex() {
+    if [[ "$CODEX_BACKEND" == "cli" ]]; then
+        uninstall_codex_with_cli
+    else
+        uninstall_codex_with_helper
+    fi
+}
+
+uninstall_claude() {
+    if [[ "$CLAUDE_BACKEND" == "cli" ]]; then
+        uninstall_claude_with_cli
+    else
+        uninstall_claude_with_helper
     fi
 }
 
@@ -337,6 +486,12 @@ echo "============================================"
 echo ""
 ws_log_info "操作: $ACTION"
 ws_log_info "目标: $TARGET"
+if [[ -n "$CODEX_BACKEND" ]]; then
+    ws_log_info "Codex 配置方式: $CODEX_BACKEND"
+fi
+if [[ -n "$CLAUDE_BACKEND" ]]; then
+    ws_log_info "Claude Code 配置方式: $CLAUDE_BACKEND"
+fi
 if [[ "$ACTION" == "install" ]]; then
     ws_log_info "URL: $SAFE_BARK_MCP_URL"
     ws_log_info "Bark key 来源: $BARK_KEY_SOURCE"
@@ -364,6 +519,7 @@ fi
 echo ""
 if [[ "$ACTION" == "install" ]]; then
     ws_log_ok "Bark MCP 配置流程完成"
+    ws_log_info "请在 VS Code 中执行 Reload Window 后再创建新会话"
 else
     ws_log_ok "Bark MCP 卸载流程完成"
 fi
