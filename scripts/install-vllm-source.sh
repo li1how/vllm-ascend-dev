@@ -140,9 +140,22 @@ fi
 
 if $INSTALL_VLLM; then
     echo ""
-    ws_log_step "安装 vllm 源码构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
-    "$PYTHON_BIN" -m pip install "${VLLM_BUILD_REQUIREMENTS[@]}"
-    ws_log_ok "vllm 源码构建依赖安装完成"
+    MISSING_VLLM_BUILD_REQUIREMENTS=()
+    for requirement in "${VLLM_BUILD_REQUIREMENTS[@]}"; do
+        if "$PYTHON_BIN" -m pip show "$requirement" &>/dev/null; then
+            ws_log_skip "vllm 源码构建依赖已安装: $requirement"
+        else
+            MISSING_VLLM_BUILD_REQUIREMENTS+=("$requirement")
+        fi
+    done
+
+    if [[ ${#MISSING_VLLM_BUILD_REQUIREMENTS[@]} -gt 0 ]]; then
+        ws_log_step "安装缺失的 vllm 源码构建依赖: ${MISSING_VLLM_BUILD_REQUIREMENTS[*]}"
+        "$PYTHON_BIN" -m pip install "${MISSING_VLLM_BUILD_REQUIREMENTS[@]}"
+        ws_log_ok "vllm 源码构建依赖安装完成"
+    else
+        ws_log_skip "vllm 源码构建依赖均已安装"
+    fi
 
     echo ""
     ws_log_step "从源码安装 vllm..."
