@@ -82,7 +82,7 @@ cd vllm-ascend-dev
 | `devcontainer-post-create.sh` | Dev Container 创建后初始化通用环境 | 由 devcontainer 自动调用 |
 | `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
-| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | `-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend |
+| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-t <dir>` 覆盖构建临时目录 |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
