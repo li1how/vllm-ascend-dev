@@ -13,7 +13,8 @@
         "type=bind,source=/usr/local/Ascend/driver/lib64,target=/usr/local/Ascend/driver/lib64",
         "type=bind,source=/usr/local/Ascend/driver/version.info,target=/usr/local/Ascend/driver/version.info",
         "type=bind,source=/etc/ascend_install.info,target=/etc/ascend_install.info",
-        "type=bind,source=/root/.cache,target=/root/.cache"
+        "type=bind,source=/root/.cache,target=/root/.cache",
+        // 权重文件挂载
     ],
     "containerEnv": {
         "devcontainer_proxy": "http://REPLACE_WITH_PROXY_HOST:3128",
