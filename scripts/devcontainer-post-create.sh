@@ -38,6 +38,12 @@ done
 
 ws_require_commands git sed
 
+ensure_agent_config_dirs() {
+    ws_log_step "初始化 AI Agent 配置目录..."
+    mkdir -p "$HOME/.codex" "$HOME/.claude"
+    ws_log_ok "~/.codex 和 ~/.claude 已就绪"
+}
+
 fix_atb_env() {
     ws_log_step "修正 Ascend ATB 环境配置..."
     local env_file
@@ -107,6 +113,7 @@ configure_pip_index() {
     ws_log_ok "pip index-url 已配置"
 }
 
+ensure_agent_config_dirs
 fix_atb_env
 configure_git_proxy
 configure_git_identity
