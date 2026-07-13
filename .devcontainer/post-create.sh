@@ -2,16 +2,16 @@
 # ============================================================
 # Dev Container 创建后初始化
 #
-# 由 devcontainer postCreateCommand 调用，用于配置容器内通用开发环境。
+# 由所有版本的 devcontainer postCreateCommand 共用，用于配置容器内通用开发环境。
 #
 # 用法:
-#   ./scripts/devcontainer-post-create.sh            # 初始化 devcontainer
-#   ./scripts/devcontainer-post-create.sh -h | --help # 查看帮助
+#   ./.devcontainer/post-create.sh             # 初始化 devcontainer
+#   ./.devcontainer/post-create.sh -h | --help # 查看帮助
 # ============================================================
 
 set -euo pipefail
-# shellcheck source=./lib/common.sh
-source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
+# shellcheck source=../scripts/lib/common.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib" && pwd)/common.sh"
 ws_enter_workspace
 
 # ---- 默认配置 ----
@@ -36,8 +36,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ---- 环境检查 ----
 ws_require_commands git sed
 
+# ---- 主逻辑 ----
 ensure_agent_config_dirs() {
     ws_log_step "初始化 AI Agent 配置目录..."
     mkdir -p "$HOME/.codex" "$HOME/.claude"
@@ -60,9 +62,14 @@ fix_atb_env() {
         changed=true
     done
 
-    if ! $changed; then
+    if [[ "$changed" == false ]]; then
         ws_log_skip "未发现需要检查的环境文件"
     fi
+}
+
+install_corp_ca() {
+    ws_log_step "安装公司代理 CA..."
+    bash "$SCRIPT_DIR/scripts/install-corp-ca.sh"
 }
 
 configure_git_proxy() {
@@ -115,6 +122,7 @@ configure_pip_index() {
 
 ensure_agent_config_dirs
 fix_atb_env
+install_corp_ca
 configure_git_proxy
 configure_git_identity
 configure_pip_index
