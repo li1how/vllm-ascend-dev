@@ -75,6 +75,9 @@ init_file_from_template "templates/devcontainer.env.template" ".devcontainer/.en
 init_file_from_template "templates/env.template" ".env"
 init_file_from_template "templates/launch.json.template" ".vscode/launch.json"
 init_file_from_template "templates/server.sh.template" "scripts/server.sh" "executable"
+init_file_from_template "templates/p_server.sh.template" "scripts/p_server.sh" "executable"
+init_file_from_template "templates/d_server.sh.template" "scripts/d_server.sh" "executable"
+init_file_from_template "templates/proxy_server.sh.template" "scripts/proxy_server.sh" "executable"
 
 echo ""
 

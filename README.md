@@ -14,7 +14,7 @@ vLLM Ascend 开发工作区
 ├── .devcontainer/                    # Dev Container 多版本配置
 │   ├── .env                          #   各版本共用的本机代理配置（由模板生成，不入仓库）
 │   ├── post-create.sh                #   各版本共用的容器创建后初始化脚本
-│   └── <version>/                    #   
+│   └── <version>/                    #
 │       └── devcontainer.json         #   各版本 Dev Container 配置（由模板生成，不入仓库）
 ├── .vscode/                          # VSCode 项目配置
 │   ├── launch.json                    #   VSCode 本机调试配置（由模板生成，不入仓库）
@@ -27,7 +27,10 @@ vLLM Ascend 开发工作区
 │   ├── devcontainer.env.template     #   Dev Container 共享代理变量模板
 │   ├── env.template                  #   统一环境变量模板
 │   ├── launch.json.template           #   VSCode 调试配置模板
-│   └── server.sh.template             #   vLLM 服务启动脚本模板
+│   ├── server.sh.template             #   vLLM 单体服务启动脚本模板
+│   ├── p_server.sh.template           #   vLLM Prefill 服务启动脚本模板
+│   ├── d_server.sh.template           #   vLLM Decode 服务启动脚本模板
+│   └── proxy_server.sh.template       #   vLLM PD Proxy 启动脚本模板
 ├── scripts/                          # 辅助脚本
 │   ├── lib/
 │   │   ├── bark_mcp_config_helper.py  #   Bark MCP TOML / JSON 配置修改 helper
@@ -40,7 +43,10 @@ vLLM Ascend 开发工作区
 │   ├── profile-analyse.sh            #   vLLM profile 分析与归档
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
 │   ├── run-benchmark.sh              #   基准测试运行脚本
-│   ├── server.sh                     #   本机 vLLM 服务启动脚本（由模板生成，不入仓库）
+│   ├── server.sh                     #   本机 vLLM 单体服务启动脚本（由模板生成，不入仓库）
+│   ├── p_server.sh                   #   本机 vLLM Prefill 启动脚本（由模板生成，不入仓库）
+│   ├── d_server.sh                   #   本机 vLLM Decode 启动脚本（由模板生成，不入仓库）
+│   ├── proxy_server.sh               #   本机 vLLM PD Proxy 启动脚本（由模板生成，不入仓库）
 │   └── setup-ssh-key.sh              #   SSH 密钥初始化与公钥安装
 ├── benchmark-outputs/                # 基准测试产物（不入仓库）
 ├── log/                              # vLLM 服务日志（不入仓库）
@@ -66,7 +72,7 @@ cd vllm-ascend-dev
 ./scripts/bootstrap.sh -b | --with-benchmark   # 同时克隆 benchmark 仓库
 ```
 
-首次运行 `bootstrap.sh` 时，会在目标文件缺失时从 `templates/` 复制部分本机配置文件。
+首次运行 `bootstrap.sh` 时，会在目标文件缺失时从 `templates/` 复制部分本机配置文件；已经存在的本机配置不会被覆盖。
 
 ## 脚本速查
 
@@ -80,11 +86,14 @@ cd vllm-ascend-dev
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
-| `server.sh` | 本机 vLLM 服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
+| `server.sh` | 本机 vLLM 单体服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
+| `p_server.sh` | 本机 vLLM Prefill 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
+| `d_server.sh` | 本机 vLLM Decode 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
+| `proxy_server.sh` | 本机 vLLM PD Proxy 启动脚本（由模板生成，不入仓库） | 直接在 `proxy_cmd` 中配置 P/D 后端 |
 | `setup-ssh-key.sh` | 生成或复用本机 SSH 密钥，并安装公钥到远端服务器 | `-i <addr>` 远端 IP；`-u <name>` 远端用户（默认 root） |
 | `.devcontainer/post-create.sh` | 各个 Dev Container 创建后初始化 | 由 devcontainer 自动调用 |
 
-所有脚本均支持 `-h | --help` 查看完整用法。
+带命令行参数的工作区辅助脚本支持 `-h | --help` 查看完整用法；本机服务启动脚本通过文件中的命令数组直接修改部署参数。
 
 ## 环境
 

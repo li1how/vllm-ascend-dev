@@ -1,0 +1,43 @@
+#!/bin/bash
+# ============================================================
+# vLLM PD Proxy 本机启动脚本模板
+#
+# 由 scripts/bootstrap.sh 复制到 scripts/proxy_server.sh。
+# 直接在 proxy_cmd 中配置 Prefill/Decode 服务地址。
+# ============================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+# PD Proxy 访问内网服务时不使用系统代理。
+unset ftp_proxy
+unset FTP_PROXY
+unset https_proxy
+unset HTTPS_PROXY
+unset http_proxy
+unset HTTP_PROXY
+unset all_proxy
+unset ALL_PROXY
+
+LOG_DIR="$SCRIPT_DIR/log"
+LOGFILE="$LOG_DIR/pd_proxy_$(date +%Y%m%d_%H%M%S).log"
+
+mkdir -p "$LOG_DIR"
+
+proxy_cmd=(
+  python3 "$SCRIPT_DIR/vllm-ascend/examples/disaggregated_prefill_v1/load_balance_proxy_server_example.py"
+  --host 0.0.0.0
+  --port 2723
+  --workers 1
+  # 多后端时，按相同顺序在 hosts 和 ports 后继续追加值
+  --prefiller-hosts ""
+  --prefiller-ports 3723
+  --decoder-hosts ""
+  --decoder-ports 3724
+)
+
+printf -v proxy_cmd_str "%q " "${proxy_cmd[@]}"
+echo "[INFO] PD Proxy 日志保存到: $LOGFILE"
+script -q -f -e -c "$proxy_cmd_str" "$LOGFILE"

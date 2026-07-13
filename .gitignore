@@ -23,6 +23,9 @@
 /.devcontainer/*/devcontainer.json
 /.vscode/launch.json
 /scripts/server.sh
+/scripts/p_server.sh
+/scripts/d_server.sh
+/scripts/proxy_server.sh
 
 # === Secrets ===
 /.env

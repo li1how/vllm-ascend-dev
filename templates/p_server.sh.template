@@ -1,0 +1,140 @@
+#!/bin/bash
+# ============================================================
+# vLLM Prefill 服务本机启动脚本模板
+#
+# 由 scripts/bootstrap.sh 复制到 scripts/p_server.sh。
+# 本机网络在顶部配置，其余部署参数直接修改 vllm_cmd。
+# ============================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$SCRIPT_DIR"
+
+# ==============================================
+# 本机网络与日志配置（按机器实际情况修改）
+# ==============================================
+local_ip=""          # 本机 IP
+master_ip="$local_ip" # 本角色 DP 主节点 IP；非主节点改为主节点 IP
+nic_name=""          # 留空时按 local_ip 自动获取；如需固定网卡名，在这里填写
+LOG_DIR="$SCRIPT_DIR/log"
+LOGFILE="$LOG_DIR/vllm_prefill_$(date +%Y%m%d_%H%M%S).log"
+
+# ==============================================
+# 网卡检测（直接使用 ifconfig）
+# ==============================================
+detect_nic_name() {
+    local ip_addr="$1"
+    local detected_nic
+
+    if ! command -v ifconfig &>/dev/null; then
+        echo "[ERROR] 未找到 ifconfig 命令，无法自动获取网卡；请设置 nic_name" >&2
+        exit 1
+    fi
+
+    detected_nic="$(ifconfig -a | awk -v ip_addr="$ip_addr" '
+        /^[^[:space:]]/ { iface=$1; sub(/:$/, "", iface) }
+        $1 == "inet" && ($2 == ip_addr || $2 == "addr:" ip_addr) { print iface; exit }
+    ')"
+
+    if [[ -z "$detected_nic" ]]; then
+        echo "[ERROR] 未找到绑定 IP $ip_addr 的网卡；请检查 local_ip，或设置 nic_name" >&2
+        exit 1
+    fi
+
+    echo "$detected_nic"
+}
+
+if [[ -z "$local_ip" ]]; then
+    echo "[ERROR] 请先设置 local_ip" >&2
+    exit 1
+fi
+
+if [[ -z "$nic_name" ]]; then
+    nic_name="$(detect_nic_name "$local_ip")"
+fi
+
+echo "[INFO] 使用网卡: $nic_name ($local_ip)"
+
+# ==============================================
+# HCCL / Ascend / vLLM 运行时配置
+# ==============================================
+export VLLM_ENGINE_READY_TIMEOUT_S=30000
+export VLLM_MOONCAKE_ABORT_REQUEST_TIMEOUT=480
+export HCCL_IF_IP="$local_ip"
+export HCCL_SOCKET_IFNAME="$nic_name"
+export GLOO_SOCKET_IFNAME="$nic_name"
+export TP_SOCKET_IFNAME="$nic_name"
+
+export HCCL_OP_EXPANSION_MODE="AIV"
+export HCCL_BUFFSIZE=1024
+export PYTORCH_NPU_ALLOC_CONF="expandable_segments:True"
+export OMP_PROC_BIND=false
+export OMP_NUM_THREADS=1
+export TASK_QUEUE_ENABLE=1
+export ASCEND_RT_VISIBLE_DEVICES="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
+# export VLLM_LOGGING_LEVEL="DEBUG"
+
+# ==============================================
+# 启动 vLLM Prefill 服务
+# ==============================================
+mkdir -p "$(dirname "$LOGFILE")"
+cd "$SCRIPT_DIR/vllm"
+
+vllm_cmd=(
+  vllm serve /home/weight/Qwen3.5-35B-A3B/
+  --host 0.0.0.0
+  --port 3723
+  --served-model-name model
+
+  --data-parallel-size 1
+  --data-parallel-size-local 1
+  --data-parallel-start-rank 0
+  --api-server-count 1
+  # 多节点非主节点：注释上一行，并启用下一行
+  # --headless
+  --data-parallel-address "$master_ip"
+  --data-parallel-rpc-port 6884
+  --tensor-parallel-size 1
+  --pipeline-parallel-size 1
+  --enable-expert-parallel
+  --prefill-context-parallel-size 1
+  --decode-context-parallel-size 1
+  --distributed-executor-backend mp
+
+  --max-model-len 131072
+  --max-num-seqs 128
+  --max-num-batched-tokens 32768
+  --gpu-memory-utilization 0.8
+
+  --enforce-eager
+  --no-enable-prefix-caching
+  --quantization ascend
+  --safetensors-load-strategy prefetch
+  --additional-config '{
+    "enable_fused_mc2": 0,
+    "enable_flashcomm1": false,
+    "enable_balance_scheduling": false
+  }'
+  --kv-transfer-config '{
+    "kv_connector": "MooncakeConnectorV1",
+    "kv_buffer_device": "npu",
+    "kv_role": "kv_producer",
+    "kv_port": "37230",
+    "engine_id": "0",
+    "kv_connector_extra_config": {
+      "prefill": {
+        "dp_size": 1,
+        "tp_size": 1
+      },
+      "decode": {
+        "dp_size": 1,
+        "tp_size": 1
+      }
+    }
+  }'
+)
+
+printf -v vllm_cmd_str "%q " "${vllm_cmd[@]}"
+echo "[INFO] vLLM Prefill 日志保存到: $LOGFILE"
+script -q -f -e -c "$vllm_cmd_str" "$LOGFILE"
