@@ -18,6 +18,9 @@
 /kernel_meta/
 /extra-info/
 
+# === 本机私有 Skill ===
+/.agents/skills/zhaopin/
+
 # === 本机配置（由 templates/ 初始化，不入仓库）===
 /.devcontainer/.env
 /.devcontainer/*/devcontainer.json
