@@ -11,10 +11,12 @@
 
 # === 工作产物（不入仓库）===
 /weekly-report/
-/docs/feature/
+/docs/
 /tmp/
 /vllm_profile/
 /log/
+/kernel_meta/
+/extra-info/
 
 # === 本机配置（由 templates/ 初始化，不入仓库）===
 /.devcontainer/.env
