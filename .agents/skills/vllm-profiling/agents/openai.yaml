@@ -1,4 +1,4 @@
 interface:
   display_name: "vLLM Profiling"
-  short_description: "Profile vLLM and guide optimization"
-  default_prompt: "Use $vllm-profiling to profile a vLLM workload and identify optimization opportunities."
+  short_description: "采集分析 vLLM profile，并依据热点证据指导性能优化"
+  default_prompt: "使用 $vllm-profiling 采集分析 vLLM workload 的 profile，并定位性能优化机会。"

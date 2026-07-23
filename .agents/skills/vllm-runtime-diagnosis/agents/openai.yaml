@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM 运行环境诊断"
+  short_description: "诊断 vLLM 源码安装、Python、Git 与 NPU 运行环境"
+  default_prompt: "使用 $vllm-runtime-diagnosis 检查当前 vLLM 源码、Python 环境、Git 状态和 NPU runtime。"

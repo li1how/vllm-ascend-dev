@@ -1,4 +1,4 @@
 interface:
-  display_name: "Weekly Report"
-  short_description: "Draft vLLM-Ascend weekly reports"
-  default_prompt: "Use $weekly-report to turn my notes into a polished vLLM-Ascend weekly report."
+  display_name: "学习周报"
+  short_description: "整理工作要点并生成结构完整、术语一致的 vLLM-Ascend 周报"
+  default_prompt: "使用 $weekly-report 将我的工作要点整理成结构清晰的 vLLM-Ascend 周报。"

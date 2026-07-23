@@ -1,4 +1,4 @@
 interface:
-  display_name: "Code Analysis"
-  short_description: "Analyze vLLM modules with diagrams"
-  default_prompt: "Use $code-analysis to analyze a vLLM or vLLM-Ascend module and produce a structured Markdown report."
+  display_name: "代码分析"
+  short_description: "分析 vLLM 模块、调用链、数据流并生成结构化图表"
+  default_prompt: "使用 $code-analysis 分析 vLLM 或 vLLM-Ascend 模块并生成结构化 Markdown 文档。"

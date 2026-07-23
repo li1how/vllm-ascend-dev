@@ -134,7 +134,12 @@ def print_op_compare(base: Path, opt: Path, limit: int) -> None:
     base_ops = op_totals(base)
     opt_ops = op_totals(opt)
     print("\n== Top Ops By Baseline Time ==")
-    for (op, core), (base_us, base_count) in sorted(base_ops.items(), key=lambda item: item[1][0], reverse=True)[:limit]:
+    sorted_ops = sorted(
+        base_ops.items(),
+        key=lambda item: item[1][0],
+        reverse=True,
+    )[:limit]
+    for (op, core), (base_us, base_count) in sorted_ops:
         opt_us, opt_count = opt_ops.get((op, core), (0.0, 0))
         print(
             f"{op[:42]:42s} core={core[:18]:18s} "
@@ -183,7 +188,12 @@ def main() -> int:
     parser.add_argument("--analysed-root", type=Path, help="Directory containing named analysed profile cases")
     parser.add_argument("--top-ops", type=int, default=20)
     parser.add_argument("--top-kernels", type=int, default=12)
-    parser.add_argument("--shape-op", default="DispatchFFNCombine")
+    parser.add_argument(
+        "--shape-op",
+        action="append",
+        default=[],
+        help="Operator type to aggregate by input shape; repeat for multiple operators",
+    )
     args = parser.parse_args()
 
     base = _resolve_case(args.baseline, args.analysed_root)
@@ -192,7 +202,8 @@ def main() -> int:
     print(f"optimized={opt}\n")
     print_step_compare(base, opt)
     print_op_compare(base, opt, args.top_ops)
-    print_shape_compare(base, opt, args.shape_op)
+    for op_type in args.shape_op:
+        print_shape_compare(base, opt, op_type)
     print_top_kernels("Baseline", base, args.top_kernels)
     print_top_kernels("Optimized", opt, args.top_kernels)
     return 0

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Manage Workspace"
-  short_description: "Maintain workspace structure and skills"
-  default_prompt: "Use $manage-workspace to inspect and safely update the vllm-ascend-dev workspace."
+  display_name: "工作区管理"
+  short_description: "检查并安全维护 vllm-ascend-dev 工作区结构与共享 Skill"
+  default_prompt: "使用 $manage-workspace 检查并安全更新 vllm-ascend-dev 工作区。"

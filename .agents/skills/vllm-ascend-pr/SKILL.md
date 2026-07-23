@@ -75,11 +75,19 @@ description: 在 vllm-ascend-dev 工作区中按当前 vllm-ascend 仓库规则�
 
 ## 提交前检查策略
 
-总是先跑：
+确认本轮文件范围后，先用 Skill 内部检查器做只读基础检查：
 
 ```bash
-git diff --check
+python <skill-dir>/scripts/change_check.py \
+  --repo <vllm-ascend-repo> --scope all \
+  --pytest-target <target>
 ```
+
+`change_check.py` 覆盖 staged、unstaged 和未跟踪 Python 文件，执行
+CRLF-aware whitespace 检查、隔离的 Python 编译检查和显式传入的 pytest
+目标，并报告 formatter/pre-commit 是否可用。它不会安装依赖、格式化文件、
+暂存或修改 Git 状态。`--scope` 可选 `working`、`staged`、`all`；可重复传入
+`--pytest-target`，需要机器可读结果时使用 `--json-output [PATH]`。
 
 然后按当前仓库规则选择检查：
 

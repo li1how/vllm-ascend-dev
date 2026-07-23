@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM 服务验证"
+  short_description: "验证 vLLM 服务健康状态、请求结果和 baseline/candidate 一致性"
+  default_prompt: "使用 $vllm-serving-validation 验证 vLLM 服务并对比 baseline 与 candidate 响应。"

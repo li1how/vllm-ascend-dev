@@ -1,4 +1,4 @@
 interface:
   display_name: "vLLM Ascend PR"
-  short_description: "Prepare vLLM Ascend PRs safely"
-  default_prompt: "Use $vllm-ascend-pr to prepare, validate, and publish a vLLM Ascend pull request."
+  short_description: "按仓库规则准备、检查并发布 vLLM Ascend PR"
+  default_prompt: "使用 $vllm-ascend-pr 准备、验证并发布一个 vLLM Ascend PR。"
