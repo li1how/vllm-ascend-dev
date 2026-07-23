@@ -19,6 +19,7 @@ master_ip="$local_ip" # 本角色 DP 主节点 IP；非主节点改为主节点 
 nic_name=""          # 留空时按 local_ip 自动获取；如需固定网卡名，在这里填写
 LOG_DIR="$SCRIPT_DIR/log"
 LOGFILE="$LOG_DIR/vllm_decode_$(date +%Y%m%d_%H%M%S).log"
+RUNTIME_DIR="${VLLM_RUNTIME_DIR:-$SCRIPT_DIR/tmp/vllm-runtime}"
 
 # ==============================================
 # 网卡检测（直接使用 ifconfig）
@@ -57,6 +58,20 @@ fi
 echo "[INFO] 使用网卡: $nic_name ($local_ip)"
 
 # ==============================================
+# 选择 vLLM 可执行文件
+# ==============================================
+if [[ -n "${VLLM_BIN:-}" ]]; then
+    if [[ ! -x "$VLLM_BIN" ]]; then
+        echo "[ERROR] VLLM_BIN 不可执行: $VLLM_BIN" >&2
+        exit 1
+    fi
+    vllm_bin="$(readlink -f "$VLLM_BIN")"
+elif ! vllm_bin="$(command -v vllm)"; then
+    echo "[ERROR] 当前环境未安装 vLLM，请先安装 vLLM 包或执行源码 editable 安装" >&2
+    exit 1
+fi
+
+# ==============================================
 # HCCL / Ascend / vLLM 运行时配置
 # ==============================================
 export VLLM_ENGINE_READY_TIMEOUT_S=30000
@@ -78,11 +93,11 @@ export ASCEND_RT_VISIBLE_DEVICES="0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15"
 # ==============================================
 # 启动 vLLM Decode 服务
 # ==============================================
-mkdir -p "$(dirname "$LOGFILE")"
-cd "$SCRIPT_DIR/vllm"
+mkdir -p "$LOG_DIR" "$RUNTIME_DIR"
+cd "$RUNTIME_DIR"
 
 vllm_cmd=(
-  vllm serve /home/weight/Qwen3.5-35B-A3B/
+  "$vllm_bin" serve /home/weight/Qwen3.5-35B-A3B/
   --host 0.0.0.0
   --port 3724
   --served-model-name model
@@ -136,5 +151,7 @@ vllm_cmd=(
 )
 
 printf -v vllm_cmd_str "%q " "${vllm_cmd[@]}"
+echo "[INFO] vLLM 命令: $vllm_bin"
+echo "[INFO] vLLM 运行目录: $RUNTIME_DIR"
 echo "[INFO] vLLM Decode 日志保存到: $LOGFILE"
 script -q -f -e -c "$vllm_cmd_str" "$LOGFILE"
