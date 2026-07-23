@@ -10,6 +10,7 @@
 #   ./scripts/install-vllm-source.sh -s | --skip-uninstall    # 跳过卸载，仅安装源码
 #   ./scripts/install-vllm-source.sh -v | --vllm-only         # 仅安装 vllm
 #   ./scripts/install-vllm-source.sh -a | --ascend-only       # 仅安装 vllm-ascend
+#   ./scripts/install-vllm-source.sh -c | --clean-build-cache # 安装前清理 vllm-ascend 构建缓存
 #   ./scripts/install-vllm-source.sh -t /path/to/tmp           # 指定构建临时目录
 #   ./scripts/install-vllm-source.sh -h | --help              # 查看帮助
 # ============================================================
@@ -24,12 +25,29 @@ CONDA_ENV="vllm-ascend-dev"
 PYTHON_BIN=""
 SKIP_UNINSTALL=false
 INSTALL_MODE="all"
+CLEAN_BUILD_CACHE=false
 VLLM_BUILD_REQUIREMENTS=(setuptools-rust)
 BUILD_TMP_DIR="$SCRIPT_DIR/tmp"
 BUILD_TMP_DIR_EXPLICIT=false
 BUILD_TMP_SOURCE="工作区默认"
 BUILD_TMP_ENV=()
 MIN_BUILD_TMP_KB=$((512 * 1024))
+ASCEND_BUILD_DIR="$SCRIPT_DIR/vllm-ascend/csrc/build"
+ASCEND_BUILD_CACHE_SUMMARY="保留"
+CANN_CACHE_KEYS=(
+    CUSTOM_ASCEND_CANN_PACKAGE_PATH
+    ASCEND_CMAKE_DIR
+    ACL_INC_DIR
+    C_SEC_INCLUDE
+    METADEF_INC_DIR
+    NNOPBASE_ACLNN_INC_DIR
+    NNOPBASE_OPDEV_INC_DIR
+    OPBASE_INC_DIR
+    PLATFORM_INC_DIR
+    RUNTIME_INC_DIR
+    TILINGAPI_INC_DIR
+    dlog_TRANSFORMER_INCLUDE_DIR
+)
 
 build_tmp_dir_is_usable() {
     local candidate="$1"
@@ -82,6 +100,167 @@ select_build_tmp_dir() {
     exit 1
 }
 
+normalize_path() {
+    local path="$1"
+
+    if ws_command_exists realpath; then
+        realpath -m -- "$path"
+    else
+        readlink -m -- "$path"
+    fi
+}
+
+resolve_current_cann_root() {
+    local candidate=""
+    local default_toolkit_dir
+    local default_install_dir
+
+    if [[ -n "${ASCEND_HOME_PATH:-}" ]]; then
+        candidate="$ASCEND_HOME_PATH"
+    elif [[ -n "${ASCEND_OPP_PATH:-}" ]]; then
+        candidate="$(dirname -- "$ASCEND_OPP_PATH")"
+    else
+        if [[ "$(id -u)" == "0" ]]; then
+            default_toolkit_dir="/usr/local/Ascend/ascend-toolkit/latest"
+            default_install_dir="/usr/local/Ascend/latest"
+        else
+            default_toolkit_dir="${HOME}/Ascend/ascend-toolkit/latest"
+            default_install_dir="${HOME}/Ascend/latest"
+        fi
+
+        if [[ -d "$default_toolkit_dir" ]]; then
+            candidate="$default_toolkit_dir"
+        elif [[ -d "$default_install_dir" ]]; then
+            candidate="$default_install_dir"
+        fi
+    fi
+
+    [[ -n "$candidate" && -d "$candidate" ]] || return 1
+    normalize_path "$candidate"
+}
+
+read_cmake_cache_value() {
+    local cache_file="$1"
+    local key="$2"
+
+    awk -v key="$key" '
+        index($0, key ":") == 1 {
+            sub(/^[^=]*=/, "")
+            print
+            exit
+        }
+    ' "$cache_file"
+}
+
+path_is_within() {
+    local root="$1"
+    local path="$2"
+
+    [[ "$path" == "$root" || "$path" == "$root/"* ]]
+}
+
+warn_ascend_cache() {
+    local current_cann_root="$1"
+    shift
+
+    ws_log_warn "vllm-ascend 构建缓存可能与当前 CANN 不兼容"
+    if [[ -n "$current_cann_root" ]]; then
+        echo "  当前 CANN: $current_cann_root"
+    fi
+    while [[ $# -gt 0 ]]; do
+        echo "  - $1"
+        shift
+    done
+    echo "  建议使用 --clean-build-cache 重新运行；本次不会自动删除缓存。"
+}
+
+inspect_ascend_build_cache() {
+    local cache_file="$ASCEND_BUILD_DIR/CMakeCache.txt"
+    local current_cann_root=""
+    local key
+    local value
+    local cached_path
+    local normalized_cached_path
+    local found_paths=0
+    local -a cached_paths=()
+    local -a issues=()
+
+    ASCEND_BUILD_CACHE_SUMMARY="保留"
+    if [[ ! -e "$ASCEND_BUILD_DIR" && ! -L "$ASCEND_BUILD_DIR" ]]; then
+        ASCEND_BUILD_CACHE_SUMMARY="不存在（无需清理）"
+        return 0
+    fi
+
+    if [[ ! -r "$cache_file" ]]; then
+        ASCEND_BUILD_CACHE_SUMMARY="保留（缓存缺失或不可读）"
+        warn_ascend_cache "" "无法读取 $cache_file"
+        return 0
+    fi
+
+    if ! current_cann_root="$(resolve_current_cann_root)"; then
+        ASCEND_BUILD_CACHE_SUMMARY="保留（无法检测兼容性）"
+        warn_ascend_cache "" "无法确定当前 CANN 根目录，请检查 ASCEND_HOME_PATH 或 ASCEND_OPP_PATH"
+        return 0
+    fi
+
+    for key in "${CANN_CACHE_KEYS[@]}"; do
+        value="$(read_cmake_cache_value "$cache_file" "$key" 2>/dev/null || true)"
+        [[ -n "$value" ]] || continue
+
+        if [[ "$value" == *-NOTFOUND ]]; then
+            issues+=("$key=$value")
+            continue
+        fi
+
+        IFS=';' read -r -a cached_paths <<< "$value"
+        for cached_path in "${cached_paths[@]}"; do
+            [[ -n "$cached_path" ]] || continue
+            if [[ "$cached_path" != /* ]]; then
+                issues+=("$key 使用了无法识别的非绝对路径: $cached_path")
+                continue
+            fi
+
+            found_paths=$((found_paths + 1))
+            normalized_cached_path="$(normalize_path "$cached_path")"
+            if ! path_is_within "$current_cann_root" "$normalized_cached_path"; then
+                issues+=("$key 指向其他 CANN: $cached_path")
+            fi
+        done
+    done
+
+    if (( found_paths == 0 )); then
+        ASCEND_BUILD_CACHE_SUMMARY="保留（缓存无法解析）"
+        warn_ascend_cache "$current_cann_root" "未在 $cache_file 中找到可识别的 CANN 路径"
+    elif (( ${#issues[@]} > 0 )); then
+        ASCEND_BUILD_CACHE_SUMMARY="保留（检测到可能失配）"
+        warn_ascend_cache "$current_cann_root" "${issues[@]}"
+    else
+        ws_log_skip "vllm-ascend 构建缓存与当前 CANN 匹配: $current_cann_root"
+    fi
+}
+
+clean_ascend_build_cache() {
+    local expected_parent
+    local actual_parent
+
+    expected_parent="$(normalize_path "$SCRIPT_DIR/vllm-ascend/csrc")"
+    actual_parent="$(normalize_path "$(dirname -- "$ASCEND_BUILD_DIR")")"
+    if [[ "$actual_parent" != "$expected_parent" || "$(basename -- "$ASCEND_BUILD_DIR")" != "build" ]]; then
+        ws_log_error "拒绝清理非预期目录: $ASCEND_BUILD_DIR"
+        exit 1
+    fi
+
+    if [[ -e "$ASCEND_BUILD_DIR" || -L "$ASCEND_BUILD_DIR" ]]; then
+        ws_log_step "清理 vllm-ascend 构建缓存: $ASCEND_BUILD_DIR"
+        rm -rf -- "$ASCEND_BUILD_DIR"
+        ASCEND_BUILD_CACHE_SUMMARY="已清理（显式指定）"
+        ws_log_ok "vllm-ascend 构建缓存已清理"
+    else
+        ASCEND_BUILD_CACHE_SUMMARY="不存在（无需清理）"
+        ws_log_skip "vllm-ascend 构建缓存不存在: $ASCEND_BUILD_DIR"
+    fi
+}
+
 # ---- 参数解析 ----
 print_help() {
     echo "用法: $0 [选项]"
@@ -92,6 +271,8 @@ print_help() {
     echo "  -s, --skip-uninstall  跳过卸载步骤，仅执行源码安装"
     echo "  -v, --vllm-only       仅处理 vllm"
     echo "  -a, --ascend-only     仅处理 vllm-ascend"
+    echo "  -c, --clean-build-cache"
+    echo "                        安装前清理 vllm-ascend 自定义算子构建缓存"
     echo "  -t, --tmp-dir <目录>  指定构建临时目录（至少需要 512 MiB）"
     echo "  -h, --help            显示此帮助信息"
     echo ""
@@ -100,9 +281,16 @@ print_help() {
     echo "  $0 -s                 # 跳过卸载，仅重新安装源码"
     echo "  $0 -v                 # 仅卸载并安装 vllm"
     echo "  $0 -a                 # 仅卸载并安装 vllm-ascend"
+    echo "  $0 -a -s -c           # 清理构建缓存后重新安装 vllm-ascend"
     echo "  $0 -a -t /path/tmp    # 使用指定临时目录安装 vllm-ascend"
     echo ""
     echo "默认构建临时目录: $SCRIPT_DIR/tmp"
+    echo ""
+    echo "以下情况建议使用 --clean-build-cache:"
+    echo "  - 切换了 CANN 版本或 CANN 安装路径不同的镜像"
+    echo "  - CMake 报错仍引用当前镜像中不存在的旧 CANN 路径"
+    echo "  - CMakeCache.txt 同时包含多个 CANN 版本或构建曾异常中断"
+    echo "  - 大幅切换了包含 CMake / 自定义算子变更的 vllm-ascend 分支"
     exit 0
 }
 
@@ -126,6 +314,10 @@ while [[ $# -gt 0 ]]; do
                 exit 1
             fi
             INSTALL_MODE="ascend"
+            shift
+            ;;
+        -c|--clean-build-cache)
+            CLEAN_BUILD_CACHE=true
             shift
             ;;
         -t|--tmp-dir)
@@ -168,6 +360,11 @@ case "$INSTALL_MODE" in
         ;;
 esac
 
+if $CLEAN_BUILD_CACHE && ! $INSTALL_ASCEND; then
+    ws_log_error "-c | --clean-build-cache 仅适用于包含 vllm-ascend 的安装"
+    exit 1
+fi
+
 # ---- 环境检查 ----
 if $INSTALL_VLLM && [[ ! -d "$SCRIPT_DIR/vllm" ]]; then
     ws_log_error "vllm 仓库不存在: $SCRIPT_DIR/vllm"
@@ -190,6 +387,14 @@ if ! "$PYTHON_BIN" -m pip --version &>/dev/null; then
     exit 1
 fi
 
+if $INSTALL_ASCEND; then
+    if $CLEAN_BUILD_CACHE; then
+        clean_ascend_build_cache
+    else
+        inspect_ascend_build_cache
+    fi
+fi
+
 # ---- 主逻辑 ----
 PACKAGES=()
 if $INSTALL_VLLM; then
@@ -206,6 +411,9 @@ echo "  Python: $("$PYTHON_BIN" -c 'import sys; print(sys.executable)')"
 echo "  组件:   ${PACKAGES[*]}"
 echo "  卸载:   $([[ "$SKIP_UNINSTALL" == true ]] && echo "跳过" || echo "执行")"
 echo "  临时目录: $BUILD_TMP_DIR（$BUILD_TMP_SOURCE，$(($(df -Pk "$BUILD_TMP_DIR" | awk 'NR == 2 { print $4 }') / 1024)) MiB 可用）"
+if $INSTALL_ASCEND; then
+    echo "  Ascend 构建缓存: $ASCEND_BUILD_CACHE_SUMMARY"
+fi
 if $INSTALL_VLLM; then
     echo "  vllm 构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
 fi
