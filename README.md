@@ -39,6 +39,7 @@ vLLM Ascend 开发工作区
 │   ├── configure-bark-mcp.sh         #   配置/卸载 Codex / Claude Code 全局 Bark MCP
 │   ├── install-ascend-stack.sh       #   从 pkg/ 按项安装 CANN / torch_npu / triton_ascend
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
+│   ├── install-pre-commit.sh         #   安装并验证 vllm-ascend pre-commit 环境
 │   ├── install-vllm-source.sh        #   安装 vLLM 与 vLLM Ascend 源码
 │   ├── profile-analyse.sh            #   vLLM profile 分析与归档
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
@@ -82,6 +83,7 @@ cd vllm-ascend-dev
 | `configure-bark-mcp.sh` | 为 Codex / Claude Code 配置或卸载全局 Bark HTTP MCP；优先使用对应 CLI，未安装时回退 Python helper | `-t codex/claude/all` 指定目标；`-k <key>` 直接传入 Bark key；`-f` 覆盖已有 `bark`；`-u` 卸载 |
 | `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
+| `install-pre-commit.sh` | 安装 Go 与 vllm-ascend lint 依赖，运行 `format.sh` 验证后启用 Git hooks | 无参数；`-h` 查看帮助 |
 | `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
