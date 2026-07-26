@@ -7,10 +7,10 @@
 #
 # 用法:
 #   ./scripts/run-benchmark.sh                                              # 使用默认配置运行
-#   ./scripts/run-benchmark.sh -m | --model vllm_api_stream_chat            # 指定模型配置
+#   ./scripts/run-benchmark.sh -m model_a -m model_b                         # 指定多个模型配置
 #   ./scripts/run-benchmark.sh -d | --dataset synthetic_gen -d gsm8k_gen    # 指定多个数据集
 #   ./scripts/run-benchmark.sh -d gpqa_gen -n 10                            # 测试前 10 条数据
-#   ./scripts/run-benchmark.sh -d synthetic_gen --mode perf                 # 性能测试
+#   ./scripts/run-benchmark.sh -d synthetic_gen --mode perf -w outputs/perf # 性能测试
 # ============================================================
 
 set -e
@@ -21,10 +21,15 @@ ws_enter_workspace
 export TORCH_DEVICE_BACKEND_AUTOLOAD=0
 
 # ---- 默认配置 ----
-MODEL_CONFIG="vllm_api_stream_chat"
+MODEL_CONFIGS=()
 DATASETS=()
 NUM_PROMPTS=""
+NUM_WARMUPS="1"
 MODE="all"
+SUMMARIZER=""
+WORK_DIR="benchmark-outputs"
+DEBUG=false
+AIS_BENCH_ARGS=()
 CONDA_ENV="ais_bench"
 PYTHON_BIN=""
 
@@ -33,18 +38,25 @@ print_help() {
     echo "用法: $0 [选项]"
     echo ""
     echo "选项:"
-    echo "  -m, --model <name>       模型配置名称（默认: vllm_api_stream_chat）"
+    echo "  -m, --model <name>       模型配置名称，可多次指定（默认: vllm_api_stream_chat）"
     echo "  -d, --dataset <name>     数据集名称，可多次指定（默认: gsm8k_gen）"
     echo "  -n, --num-prompts <num>  每个数据集的测试条数，必须为正整数（默认: 全部）"
+    echo "      --num-warmups <num>  warmup 次数，必须为非负整数（默认: 1）"
     echo "      --mode <name>        运行模式（默认: all；性能测试使用 perf）"
+    echo "  -s, --summarizer <name>  结果汇总配置（默认: 由 ais_bench 按模式选择）"
+    echo "  -w, --work-dir <path>    输出根目录（默认: benchmark-outputs）"
+    echo "      --debug              开启 ais_bench debug（默认: 关闭）"
+    echo "      -- <args...>         其余参数原样传给 ais_bench"
     echo "  -h, --help               显示此帮助信息"
     echo ""
     echo "示例:"
     echo "  $0                                        # 默认配置"
     echo "  $0 -d synthetic_gen -d gsm8k_gen          # 多个数据集"
-    echo "  $0 -m my_model -d gpqa_gen                # 自定义模型 + 数据集"
+    echo "  $0 -m model_a -m model_b -d gpqa_gen      # 多模型 + 数据集"
     echo "  $0 -d gpqa_gen -n 10                      # 测试前 10 条数据"
     echo "  $0 -d synthetic_gen --mode perf           # 性能测试"
+    echo "  $0 -d synthetic_gen --mode perf -- --pressure"
+    echo "                                            # 透传 ais_bench 参数"
     echo ""
     echo "可用的数据集 (--dataset 参数):"
     echo ""
@@ -147,16 +159,31 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         -m|--model)
             ws_require_value "$1" "${2:-}"
-            MODEL_CONFIG="$2"; shift 2 ;;
+            MODEL_CONFIGS+=("$2"); shift 2 ;;
         -d|--dataset)
             ws_require_value "$1" "${2:-}"
             DATASETS+=("$2"); shift 2 ;;
         -n|--num-prompts)
             ws_require_value "$1" "${2:-}"
             NUM_PROMPTS="$2"; shift 2 ;;
+        --num-warmups)
+            ws_require_value "$1" "${2:-}"
+            NUM_WARMUPS="$2"; shift 2 ;;
         --mode)
             ws_require_value "$1" "${2:-}"
             MODE="$2"; shift 2 ;;
+        -s|--summarizer)
+            ws_require_value "$1" "${2:-}"
+            SUMMARIZER="$2"; shift 2 ;;
+        -w|--work-dir)
+            ws_require_value "$1" "${2:-}"
+            WORK_DIR="$2"; shift 2 ;;
+        --debug)
+            DEBUG=true; shift ;;
+        --)
+            shift
+            AIS_BENCH_ARGS=("$@")
+            break ;;
         -h|--help)
             print_help ;;
         *)
@@ -164,7 +191,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ---- 默认数据集 ----
+# ---- 默认模型和数据集 ----
+if [[ ${#MODEL_CONFIGS[@]} -eq 0 ]]; then
+    MODEL_CONFIGS=(vllm_api_stream_chat)
+fi
 if [[ ${#DATASETS[@]} -eq 0 ]]; then
     DATASETS=(gsm8k_gen)
 fi
@@ -180,18 +210,24 @@ ws_select_python_env "$CONDA_ENV"
 export PYTHONPATH="$SCRIPT_DIR/benchmark${PYTHONPATH:+:$PYTHONPATH}"
 ws_require_python_module "ais_bench.benchmark.cli.main" "请先准备包含 ais_bench 依赖的 Python 环境"
 
-# ---- 输出目录 ----
-BENCH_OUTPUT_DIR="$SCRIPT_DIR/benchmark-outputs"
+# ---- 输出目录和参数 ----
+BENCH_OUTPUT_DIR="$(ws_resolve_path "$WORK_DIR")"
 mkdir -p "$BENCH_OUTPUT_DIR"
 
 # ---- 运行测试 ----
 echo "========================================="
 echo "  Ais_Bench 基准测试"
-echo "  模型配置: ${MODEL_CONFIG}"
+echo "  模型配置: ${MODEL_CONFIGS[*]}"
 echo "  数据集:   ${DATASETS[*]}"
 echo "  测试条数: ${NUM_PROMPTS:-全部（每个数据集）}"
+echo "  Warmup:    ${NUM_WARMUPS}"
 echo "  运行模式: ${MODE}"
+echo "  汇总配置: ${SUMMARIZER:-ais_bench 默认}"
+echo "  Debug:     ${DEBUG}"
 echo "  输出目录: ${BENCH_OUTPUT_DIR}"
+if [[ ${#AIS_BENCH_ARGS[@]} -gt 0 ]]; then
+    echo "  附加参数: 已提供 ${#AIS_BENCH_ARGS[@]} 个（不展开）"
+fi
 echo "========================================="
 
 NUM_PROMPTS_ARGS=()
@@ -199,28 +235,40 @@ if [[ -n "$NUM_PROMPTS" ]]; then
     NUM_PROMPTS_ARGS=(--num-prompts "$NUM_PROMPTS")
 fi
 
-for DS in "${DATASETS[@]}"; do
-    echo ""
-    ws_log_step "开始测试数据集: ${DS}"
+SUMMARIZER_ARGS=()
+if [[ -n "$SUMMARIZER" ]]; then
+    SUMMARIZER_ARGS=(--summarizer "$SUMMARIZER")
+fi
 
-    unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+ACCURACY_ARGS=()
+if [[ "$MODE" != "perf" && "$MODE" != "perf_viz" ]]; then
+    ACCURACY_ARGS=(--dump-eval-details)
+fi
 
-    if "$PYTHON_BIN" -m ais_bench.benchmark.cli.main \
-        --models "${MODEL_CONFIG}" \
-        --datasets "${DS}" \
-        --mode "${MODE}" \
-        "${NUM_PROMPTS_ARGS[@]}" \
-        --dump-eval-details \
-        --summarizer example \
-        --debug \
-        -w "$BENCH_OUTPUT_DIR"; then
-        ws_log_ok "${DS} 测试完成"
-    else
-        ws_log_error "${DS} 测试失败，退出"
-        exit 1
-    fi
-    echo "-----------------------------------------"
-done
+DEBUG_ARGS=()
+if $DEBUG; then
+    DEBUG_ARGS=(--debug)
+fi
 
-echo ""
-echo "所有数据集测试结束"
+BENCH_CMD=(
+    "$PYTHON_BIN" -m ais_bench.benchmark.cli.main
+    --models "${MODEL_CONFIGS[@]}"
+    --datasets "${DATASETS[@]}"
+    --mode "$MODE"
+    --num-warmups "$NUM_WARMUPS"
+    -w "$BENCH_OUTPUT_DIR"
+    "${NUM_PROMPTS_ARGS[@]}"
+    "${SUMMARIZER_ARGS[@]}"
+    "${ACCURACY_ARGS[@]}"
+    "${DEBUG_ARGS[@]}"
+    "${AIS_BENCH_ARGS[@]}"
+)
+
+unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+ws_log_step "开始运行 AISBench"
+if "${BENCH_CMD[@]}"; then
+    ws_log_ok "AISBench 测试完成"
+else
+    ws_log_error "AISBench 测试失败"
+    exit 1
+fi

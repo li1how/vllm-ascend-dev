@@ -87,7 +87,7 @@ cd vllm-ascend-dev
 | `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
-| `run-benchmark.sh` | 运行 ais_bench 基准测试 | `-m <name>` 模型配置；`-d <name>` 数据集（可多次指定） |
+| `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--` 透传额外参数 |
 | `server.sh` | 本机 vLLM 单体服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
 | `p_server.sh` | 本机 vLLM Prefill 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
 | `d_server.sh` | 本机 vLLM Decode 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |

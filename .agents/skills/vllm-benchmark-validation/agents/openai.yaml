@@ -1,0 +1,4 @@
+interface:
+  display_name: "vLLM Benchmark Validation"
+  short_description: "Run and compare AISBench accuracy and performance tests"
+  default_prompt: "Use $vllm-benchmark-validation to run an AISBench accuracy or performance evaluation and summarize the results."
