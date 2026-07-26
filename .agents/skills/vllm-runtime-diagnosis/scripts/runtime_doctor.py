@@ -20,6 +20,13 @@ MODULE_DISTRIBUTIONS = {
 }
 TOOLS = ("vllm", "pytest", "ruff", "pre-commit", "gh", "conda")
 SAFE_ENV_NAMES = ("ASCEND_RT_VISIBLE_DEVICES", "NPU_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
+CANN_ENV_NAMES = (
+    "ASCEND_HOME_PATH",
+    "ASCEND_OPP_PATH",
+    "ASCEND_AICPU_PATH",
+    "ASCEND_TOOLKIT_HOME",
+)
+NPU_CONTROL_DEVICE_NAMES = ("davinci_manager", "devmm_svm", "hisi_hdc")
 
 
 def run_command(
@@ -40,8 +47,18 @@ def run_command(
             timeout=timeout_sec,
             check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "error_type": "timeout",
+            "error": f"command timed out after {timeout_sec:g}s",
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error_type": "os_error",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
     return {
         "ok": result.returncode == 0,
         "returncode": result.returncode,
@@ -187,15 +204,95 @@ print(json.dumps(result))
 """
 
 
+def npu_device_nodes(dev_root: Path = Path("/dev")) -> dict[str, Any]:
+    try:
+        entries = tuple(dev_root.iterdir())
+    except OSError as exc:
+        return {
+            "accelerators": [],
+            "control": [],
+            "scan_error": f"{type(exc).__name__}: {exc}",
+        }
+    accelerators = sorted(
+        str(entry)
+        for entry in entries
+        if entry.name.startswith("davinci")
+        and entry.name.removeprefix("davinci").isdigit()
+    )
+    control = sorted(
+        str(dev_root / name)
+        for name in NPU_CONTROL_DEVICE_NAMES
+        if (dev_root / name).exists()
+    )
+    return {"accelerators": accelerators, "control": control}
+
+
+def command_status(result: dict[str, Any], success_status: str = "ok") -> str:
+    if result.get("ok"):
+        return success_status
+    if result.get("error_type") == "timeout":
+        return "timeout"
+    return "probe_error"
+
+
+def result_detail(result: dict[str, Any]) -> str | None:
+    detail = result.get("error") or result.get("stderr")
+    if not isinstance(detail, str) or not detail:
+        return None
+    return " ".join(detail.split())[:500]
+
+
 def npu_info(mode: str, timeout_sec: float) -> dict[str, Any]:
     if mode == "skip":
         return {"checked": False}
+    devices = npu_device_nodes()
     command = shutil.which("npu-smi")
+    common = {
+        "checked": True,
+        "mode": mode,
+        "visible_devices": {
+            name: os.environ[name] for name in SAFE_ENV_NAMES if name in os.environ
+        },
+        "cann_environment": {
+            name: bool(os.environ.get(name)) for name in CANN_ENV_NAMES
+        },
+        "device_nodes": devices,
+        "npu_smi_path": command,
+    }
+    if not devices["accelerators"]:
+        reason = (
+            "no Ascend accelerator device nodes are visible in /dev; rerun in an "
+            "unsandboxed host shell or a container with NPU devices mapped"
+        )
+        if devices.get("scan_error"):
+            reason = f"cannot inspect /dev: {devices['scan_error']}"
+        return {
+            **common,
+            "status": "not_verifiable",
+            "reason": reason,
+            "npu_smi": {
+                "checked": False,
+                "status": "skipped",
+                "reason": reason,
+            },
+            "device_probe": {
+                "checked": False,
+                "status": "not_verifiable",
+                "reason": reason,
+            },
+        }
+
     smi = (
         run_command((command, "info"), timeout_sec=timeout_sec)
         if command
-        else {"ok": False, "error": "npu-smi not found"}
+        else {
+            "ok": False,
+            "error_type": "not_found",
+            "error": "npu-smi not found",
+        }
     )
+    smi["checked"] = True
+    smi["status"] = command_status(smi)
     if isinstance(smi.get("stdout"), str):
         smi["stdout"] = smi["stdout"][:4000]
     if isinstance(smi.get("stderr"), str):
@@ -211,19 +308,32 @@ def npu_info(mode: str, timeout_sec: float) -> dict[str, Any]:
         try:
             device = json.loads(result["stdout"].splitlines()[-1])
         except (IndexError, json.JSONDecodeError) as exc:
-            device = {"available": False, "probe_error": str(exc)}
+            device = {
+                "checked": True,
+                "status": "probe_error",
+                "probe_error": f"{type(exc).__name__}: {exc}",
+            }
+        else:
+            device["checked"] = True
+            if device.get("error"):
+                device["status"] = "probe_error"
+            elif device.get("available") is True:
+                device["status"] = "available"
+            elif device.get("available") is False:
+                device["status"] = "unavailable"
+            else:
+                device["status"] = "probe_error"
+                device["probe_error"] = "device probe returned no availability result"
     else:
         device = {
-            "available": False,
+            "checked": True,
+            "status": command_status(result, success_status="available"),
             "probe_error": result.get("error") or result.get("stderr"),
         }
+    status = device["status"]
     return {
-        "checked": True,
-        "mode": mode,
-        "visible_devices": {
-            name: os.environ[name] for name in SAFE_ENV_NAMES if name in os.environ
-        },
-        "npu_smi_path": command,
+        **common,
+        "status": status,
         "npu_smi": smi,
         "device_probe": device,
     }
@@ -236,6 +346,50 @@ def add_issue(
     message: str,
 ) -> None:
     issues.append({"severity": severity, "code": code, "message": message})
+
+
+def add_npu_issues(
+    issues: list[dict[str, str]],
+    npu: dict[str, Any],
+    mode: str,
+) -> None:
+    if not npu.get("checked"):
+        return
+    severity = "error" if mode == "required" else "warning"
+    status = npu.get("status")
+    if status == "not_verifiable":
+        add_issue(
+            issues,
+            severity,
+            "npu-environment",
+            str(npu.get("reason") or "NPU state is not verifiable in this environment"),
+        )
+        return
+
+    smi = npu.get("npu_smi", {})
+    smi_status = smi.get("status")
+    if smi_status != "ok":
+        detail = result_detail(smi)
+        add_issue(
+            issues,
+            severity,
+            "npu-smi",
+            f"npu-smi status is {smi_status or 'probe_error'}"
+            + (f": {detail}" if detail else ""),
+        )
+
+    device = npu.get("device_probe", {})
+    device_status = device.get("status")
+    if device_status == "available":
+        return
+    if device_status == "unavailable":
+        message = "torch_npu reports no available NPU device"
+    elif device_status == "timeout":
+        message = f"torch_npu device probe timed out: {device.get('probe_error')}"
+    else:
+        detail = device.get("error") or device.get("probe_error")
+        message = "torch_npu device probe failed" + (f": {detail}" if detail else "")
+    add_issue(issues, severity, "npu-device", message)
 
 
 def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, Any]:
@@ -293,16 +447,7 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
             add_issue(issues, "warning", f"tool-{name}", f"optional command not found: {name}")
 
     npu = npu_info(npu_mode, timeout_sec)
-    if npu.get("checked") and npu_mode == "required":
-        if not npu.get("npu_smi", {}).get("ok"):
-            add_issue(issues, "error", "npu-smi", "npu-smi check failed")
-        if not npu.get("device_probe", {}).get("available"):
-            add_issue(issues, "error", "npu-device", "torch_npu reports no available device")
-    elif npu.get("checked"):
-        if not npu.get("npu_smi", {}).get("ok"):
-            add_issue(issues, "warning", "npu-smi", "npu-smi check failed")
-        if not npu.get("device_probe", {}).get("available"):
-            add_issue(issues, "warning", "npu-device", "torch_npu reports no available device")
+    add_npu_issues(issues, npu, npu_mode)
 
     return {
         "workspace": str(workspace),
@@ -343,11 +488,16 @@ def print_human(report: dict[str, Any]) -> None:
     for name, path in report["tools"].items():
         print(f"  {name}: {path or 'missing'}")
     if report["npu"].get("checked"):
+        npu = report["npu"]
         print(
             "npu: "
-            f"npu-smi={'ok' if report['npu']['npu_smi'].get('ok') else 'failed'} "
-            f"available={report['npu']['device_probe'].get('available', False)}"
+            f"status={npu.get('status', 'unknown')} "
+            f"devices={len(npu.get('device_nodes', {}).get('accelerators', []))} "
+            f"npu-smi={npu.get('npu_smi', {}).get('status', 'unknown')} "
+            f"torch_npu={npu.get('device_probe', {}).get('status', 'unknown')}"
         )
+        if npu.get("reason"):
+            print(f"  detail: {npu['reason']}")
     print("issues:")
     if not report["issues"]:
         print("  none")

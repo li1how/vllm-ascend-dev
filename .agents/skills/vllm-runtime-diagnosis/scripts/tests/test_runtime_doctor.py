@@ -116,6 +116,90 @@ class RuntimeDoctorTests(unittest.TestCase):
         self.assertTrue(runtime_doctor.path_is_within("/a/source/pkg/file.py", Path("/a/source")))
         self.assertFalse(runtime_doctor.path_is_within("/a/other/file.py", Path("/a/source")))
 
+    def test_npu_device_node_detection(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            dev_root = Path(temp_dir)
+            (dev_root / "davinci0").touch()
+            (dev_root / "davinci_manager").touch()
+            (dev_root / "davinci_not_a_device").touch()
+            devices = runtime_doctor.npu_device_nodes(dev_root)
+        self.assertEqual(devices["accelerators"], [str(dev_root / "davinci0")])
+        self.assertEqual(devices["control"], [str(dev_root / "davinci_manager")])
+
+    def test_npu_without_device_nodes_is_not_verifiable(self) -> None:
+        devices = {"accelerators": [], "control": []}
+        with (
+            mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
+            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(runtime_doctor, "run_command") as run_command,
+        ):
+            info = runtime_doctor.npu_info("auto", 1)
+        run_command.assert_not_called()
+        self.assertEqual(info["status"], "not_verifiable")
+        self.assertEqual(info["npu_smi"]["status"], "skipped")
+        self.assertEqual(info["device_probe"]["status"], "not_verifiable")
+
+        issues: list[dict[str, str]] = []
+        runtime_doctor.add_npu_issues(issues, info, "auto")
+        self.assertEqual(issues[0]["code"], "npu-environment")
+        self.assertEqual(issues[0]["severity"], "warning")
+        self.assertIn("unsandboxed", issues[0]["message"])
+
+    def test_npu_probe_timeout_is_not_unavailable(self) -> None:
+        devices = {"accelerators": ["/dev/davinci0"], "control": []}
+        timed_out = {
+            "ok": False,
+            "error_type": "timeout",
+            "error": "command timed out after 1s",
+        }
+        with (
+            mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
+            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(
+                runtime_doctor,
+                "run_command",
+                side_effect=(timed_out.copy(), timed_out.copy()),
+            ),
+        ):
+            info = runtime_doctor.npu_info("required", 1)
+        self.assertEqual(info["status"], "timeout")
+        self.assertEqual(info["npu_smi"]["status"], "timeout")
+        self.assertEqual(info["device_probe"]["status"], "timeout")
+
+        issues: list[dict[str, str]] = []
+        runtime_doctor.add_npu_issues(issues, info, "required")
+        self.assertTrue(all(issue["severity"] == "error" for issue in issues))
+        device_issue = next(issue for issue in issues if issue["code"] == "npu-device")
+        self.assertIn("timed out", device_issue["message"])
+        self.assertNotIn("no available", device_issue["message"])
+
+    def test_npu_probe_reports_unavailable_only_after_completed_probe(self) -> None:
+        devices = {"accelerators": ["/dev/davinci0"], "control": []}
+        smi_result = {"ok": True, "returncode": 0, "stdout": "ok", "stderr": ""}
+        probe_result = {
+            "ok": True,
+            "returncode": 0,
+            "stdout": json.dumps({"available": False, "device_count": 0}),
+            "stderr": "",
+        }
+        with (
+            mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
+            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(
+                runtime_doctor,
+                "run_command",
+                side_effect=(smi_result, probe_result),
+            ),
+        ):
+            info = runtime_doctor.npu_info("auto", 1)
+        self.assertEqual(info["status"], "unavailable")
+        self.assertEqual(info["device_probe"]["status"], "unavailable")
+
+        issues: list[dict[str, str]] = []
+        runtime_doctor.add_npu_issues(issues, info, "auto")
+        self.assertEqual(len(issues), 1)
+        self.assertIn("no available NPU device", issues[0]["message"])
+
 
 if __name__ == "__main__":
     unittest.main()
