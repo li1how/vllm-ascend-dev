@@ -14,10 +14,6 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../scripts/lib" && pwd)/common.sh"
 ws_enter_workspace
 
-# ---- 默认配置 ----
-DEFAULT_GIT_USER_NAME="leolee"
-DEFAULT_GIT_USER_EMAIL="yihao.li@huawei.com"
-
 # ---- 参数解析 ----
 print_help() {
     echo "用法: $0 [选项]"
@@ -95,8 +91,8 @@ configure_git_proxy() {
 
 configure_git_identity() {
     ws_log_step "配置 Git 用户信息..."
-    local git_user_name="${devcontainer_git_user_name:-${DEVCONTAINER_GIT_USER_NAME:-$DEFAULT_GIT_USER_NAME}}"
-    local git_user_email="${devcontainer_git_user_email:-${DEVCONTAINER_GIT_USER_EMAIL:-$DEFAULT_GIT_USER_EMAIL}}"
+    local git_user_name="${devcontainer_git_user_name:-${DEVCONTAINER_GIT_USER_NAME:-}}"
+    local git_user_email="${devcontainer_git_user_email:-${DEVCONTAINER_GIT_USER_EMAIL:-}}"
 
     if [[ -z "$git_user_name" || -z "$git_user_email" ]]; then
         ws_log_skip "未设置 Git user.name / user.email"

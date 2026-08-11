@@ -111,6 +111,8 @@ cd vllm-ascend-dev
 Dev Container 主要环境变量：
 
 - `devcontainer_proxy` — HTTP/HTTPS 代理地址，各个 Dev Container 启动时会读取并设置 `http_proxy` / `https_proxy` / `HTTP_PROXY` / `HTTPS_PROXY`
+- `devcontainer_git_user_name` — Dev Container 内的 Git `user.name`，兼容大写变量 `DEVCONTAINER_GIT_USER_NAME`
+- `devcontainer_git_user_email` — Dev Container 内的 Git `user.email`，兼容大写变量 `DEVCONTAINER_GIT_USER_EMAIL`
 
 ### Python 环境策略
 
