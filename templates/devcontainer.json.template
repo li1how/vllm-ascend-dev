@@ -34,7 +34,8 @@
                 "Anthropic.claude-code",
                 "ms-python.python",
                 "charliermarsh.ruff",
-                "eamodio.gitlens"
+                "eamodio.gitlens",
+                "netakiryosuke.vscode-git-fixup-panel"
             ]
         }
     }
