@@ -14,6 +14,7 @@
 
 set -e
 # shellcheck source=./lib/common.sh
+# shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
 ws_enter_workspace
 
@@ -27,8 +28,6 @@ PORT="${PORT:-8723}"
 DO_TRANSLATE=false
 NO_SERVER=false
 PYTHON_BIN=""
-# 使用系统 CA 证书（含公司代理 CA），certifi 内置的不含
-export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # ---- 解析参数 ----
 while [[ $# -gt 0 ]]; do
@@ -51,6 +50,9 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---- 环境检查 ----
+# 使用系统 CA 证书（含公司代理 CA），certifi 内置的不含
+ws_select_package_manager
+export SSL_CERT_FILE="$WS_SYSTEM_CA_FILE"
 ws_select_python_env "$CONDA_ENV"
 ws_require_commands sphinx-build
 if [[ "$DO_TRANSLATE" == true ]]; then

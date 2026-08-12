@@ -39,7 +39,7 @@ vLLM Ascend 开发工作区
 │   ├── configure-bark-mcp.sh         #   配置/卸载 Codex / Claude Code 全局 Bark MCP
 │   ├── install-ascend-stack.sh       #   从 pkg/ 按项安装 CANN / torch_npu / triton_ascend
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
-│   ├── install-pre-commit.sh         #   安装并验证 vllm-ascend pre-commit 环境
+│   ├── install-pre-commit.sh         #   安装并预热 vllm-ascend pre-commit 环境
 │   ├── install-vllm-source.sh        #   安装 vLLM 与 vLLM Ascend 源码
 │   ├── profile-analyse.sh            #   vLLM profile 分析与归档
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
@@ -83,7 +83,7 @@ cd vllm-ascend-dev
 | `configure-bark-mcp.sh` | 为 Codex / Claude Code 配置或卸载全局 Bark HTTP MCP；优先使用对应 CLI，未安装时回退 Python helper | `-t codex/claude/all` 指定目标；`-k <key>` 直接传入 Bark key；`-f` 覆盖已有 `bark`；`-u` 卸载 |
 | `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
-| `install-pre-commit.sh` | 安装 Go 与 vllm-ascend lint 依赖，运行 `format.sh` 验证后启用 Git hooks | 无参数；`-h` 查看帮助 |
+| `install-pre-commit.sh` | 使用 APT/YUM 与 pip 安装 vllm-ascend lint 依赖，预热并启用 Git hooks | 无参数；`-h` 查看帮助 |
 | `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
@@ -119,7 +119,8 @@ Dev Container 主要环境变量：
 需要 Python 环境的工作区脚本会在运行时动态选择解释器：
 
 1. 优先尝试激活脚本对应的目标 conda 环境。
-2. 如果 `conda` 不可用、conda 初始化失败，或目标环境激活失败，则回退到当前可用的系统 Python。
+2. 如果系统完全没有 `conda`，则使用当前可用的系统 Python。
+3. 如果 `conda` 已安装但初始化失败、目标环境不存在或激活失败，脚本会立即报错，不会把依赖误装到系统 Python。
 
 推荐的目标 conda 环境如下：
 

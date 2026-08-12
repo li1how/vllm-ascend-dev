@@ -20,6 +20,7 @@
 
 set -euo pipefail
 # shellcheck source=./lib/common.sh
+# shellcheck disable=SC1091
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/lib" && pwd)/common.sh"
 ws_enter_workspace
 shopt -s nullglob
@@ -63,7 +64,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ---- 环境检查 ----
-# root 权限：写入 /usr/local/share/ca-certificates + 调用 update-ca-certificates
+# root 权限：写入系统 CA anchor 并刷新系统信任库
 if [[ $EUID -ne 0 ]]; then
     ws_log_error "需要 root 权限安装系统 CA，请用 root 运行或加 sudo"
     exit 1
@@ -83,19 +84,9 @@ PROXY_HP="${PROXY_HP#https://}"
 PROXY_HP="${PROXY_HP%%/*}"
 
 ws_require_commands openssl curl
-
-if ws_command_exists update-ca-certificates; then
-    CA_STORE="debian"
-    CA_FILE="/usr/local/share/ca-certificates/${CA_NAME}.crt"
-elif ws_command_exists update-ca-trust; then
-    CA_STORE="rhel"
-    CA_FILE="/etc/pki/ca-trust/source/anchors/${CA_NAME}.crt"
-else
-    ws_log_error "缺少系统 CA 刷新命令: update-ca-certificates 或 update-ca-trust"
-    echo "  Debian/Ubuntu: apt install ca-certificates"
-    echo "  RHEL/CentOS/openEuler: yum install ca-certificates"
-    exit 1
-fi
+ws_select_package_manager
+ws_require_commands "${WS_CA_UPDATE_COMMAND[0]}"
+CA_FILE="$WS_CA_ANCHOR_DIR/${CA_NAME}.crt"
 
 # ---- 幂等检查 ----
 if ! $FORCE; then
@@ -144,22 +135,16 @@ ws_log_step "安装到 $CA_FILE ..."
 mkdir -p "$(dirname "$CA_FILE")"
 cp "$ROOT_CERT" "$CA_FILE"
 chmod 644 "$CA_FILE"
-case "$CA_STORE" in
-    debian)
-        UPD_OUT="$(update-ca-certificates 2>&1 | grep -m1 -E '[0-9]+ added, [0-9]+ removed' || true)"
-        [[ -z "$UPD_OUT" ]] && UPD_OUT="done"
-        ws_log_ok "update-ca-certificates: $UPD_OUT"
-        ;;
-    rhel)
-        if ! UPD_OUT="$(update-ca-trust extract 2>&1)"; then
-            ws_log_error "update-ca-trust extract 失败"
-            [[ -n "$UPD_OUT" ]] && echo "$UPD_OUT"
-            exit 1
-        fi
-        [[ -z "$UPD_OUT" ]] && UPD_OUT="done"
-        ws_log_ok "update-ca-trust extract: $UPD_OUT"
-        ;;
-esac
+if ! UPD_OUT="$("${WS_CA_UPDATE_COMMAND[@]}" 2>&1)"; then
+    ws_log_error "${WS_CA_UPDATE_COMMAND[*]} 失败"
+    [[ -n "$UPD_OUT" ]] && echo "$UPD_OUT"
+    exit 1
+fi
+if [[ "$WS_SYSTEM_FAMILY" == "debian" ]]; then
+    UPD_OUT="$(grep -m1 -E '[0-9]+ added, [0-9]+ removed' <<< "$UPD_OUT" || true)"
+fi
+[[ -z "$UPD_OUT" ]] && UPD_OUT="done"
+ws_log_ok "${WS_CA_UPDATE_COMMAND[*]}: $UPD_OUT"
 
 # ---- 验证 ----
 ws_log_step "验证 TLS 信任..."
