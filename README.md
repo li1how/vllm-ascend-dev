@@ -41,6 +41,7 @@ vLLM Ascend 开发工作区
 │   ├── install-corp-ca.sh            #   安装公司代理 CA 到系统信任库
 │   ├── install-pre-commit.sh         #   安装并预热 vllm-ascend pre-commit 环境
 │   ├── install-vllm-source.sh        #   安装 vLLM 与 vLLM Ascend 源码
+│   ├── process-trace.sh              #   根据进程 PID 查询运行目录与容器归属
 │   ├── profile-analyse.sh            #   vLLM profile 分析与归档
 │   ├── preview-vllm-ascend-docs.sh   #   文档构建 & 预览
 │   ├── run-benchmark.sh              #   基准测试运行脚本
@@ -85,6 +86,7 @@ cd vllm-ascend-dev
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
 | `install-pre-commit.sh` | 使用 APT/YUM 与 pip 安装 vllm-ascend lint 依赖，预热并启用 Git hooks | 无参数；`-h` 查看帮助 |
 | `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
+| `process-trace.sh` | 根据宿主机进程 PID 查询运行目录、容器运行时、容器 ID、名称和状态 | 直接传 `<pid>`（推荐），或使用 `-p | --pid <pid>` |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
 | `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--` 透传额外参数 |
