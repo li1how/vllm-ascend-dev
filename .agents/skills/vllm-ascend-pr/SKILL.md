@@ -47,7 +47,7 @@ description: 在 vllm-ascend-dev 工作区中按当前 vllm-ascend 仓库规则�
 - 命令可用性：`git`、`python3` 或 `python`、`conda`、`pre-commit`、`gh`。
 - Git 状态：仓库根、当前分支、upstream、remote、`user.name`、`user.email`、工作区状态、staged/unstaged/untracked 文件。
 - Hook 状态：`.git/hooks/pre-commit`、`.git/hooks/commit-msg` 是否存在、是否可执行、实际调用哪个配置和解释器；如果 hook 写了绝对解释器路径，先检查该路径是否可执行，不要假设一定存在。
-- 环境说明：从当前 `README.md` / `AGENTS.md` / 子仓文档读取 conda 或依赖说明；需要激活环境时按当前说明执行。找不到环境或依赖时，选择仍可运行的检查并记录缺口。
+- 环境说明：从当前 `README.md` / `AGENTS.md` / 子仓文档读取 conda 或依赖说明；需要激活环境时按当前说明执行。遇到工具缺失、hook 下载失败或可执行文件异常等环境问题时，先按工作区根目录 `AGENTS.md` / `README.md` 查找标准修复入口；修复入口不存在或执行失败时，再选择仍可运行的检查并记录缺口。
 - 网络和凭据：需要 `fetch`、`push`、`gh` 或 connector 时，先预期可能需要网络/认证权限；失败时保留原始错误要点并说明影响。
 
 ## 分支与提交流程

@@ -17,6 +17,7 @@ vLLM Ascend 多仓库开发工作区。
 环境变量、Python 环境策略详见已导入的 README。以下为补充说明：
 
 - 网络 / SSL：公司代理有自签证书，正常情况系统已配置；部分 Python 包（如 certifi）自带 CA bundle，需设置 `SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt`
+- vllm-ascend CI：若 `format.sh ci` 因工具缺失、hook 下载失败或可执行文件架构错误等环境问题失败，先在工作区根目录运行 `./scripts/install-pre-commit.sh`，再原样重跑检查；代码检查失败仍按 hook 输出修复。
 
 ## 通知规则
 
