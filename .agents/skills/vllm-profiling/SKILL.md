@@ -10,8 +10,8 @@ profile，定位热点，实施范围明确的修改，然后在相同条件下�
 
 服务生命周期、健康检查、请求执行和输出正确性使用
 `vllm-serving-validation`；活动源码、Python、import、Git 或 NPU 状态不明确时
-使用 `vllm-runtime-diagnosis`；需要详细源码调用链文档时使用
-`code-analysis`。
+使用 `vllm-runtime-diagnosis`。需要跨模块调用链时，直接基于当前
+`vllm`/`vllm-ascend` 源码追踪并保留具体路径与行号。
 
 ## 边界
 
@@ -84,7 +84,7 @@ case 名称保持稳定且可读。保留 warning 和失败信息。如果离线
 - 与当前 workload 相关的 shape、batch 或 sequence 影响。
 
 每个候选都要保留 profile row 或 trace 证据、日志证据、源码位置、作用机制、
-预期收益和风险。需要跨模块调用链时使用 `code-analysis`。
+预期收益和风险。跨模块调用链必须以当前源码中的真实调用关系为准。
 
 ### 5. 在相同条件下复测
 
