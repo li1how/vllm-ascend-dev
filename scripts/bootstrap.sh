@@ -67,10 +67,53 @@ init_file_from_template() {
     ws_log_ok "已从 $template_path 初始化 $target_path"
 }
 
+detect_devcontainer_variant() {
+    local variant="a3"
+    local npu_info
+    local npu_status
+
+    if ! ws_command_exists npu-smi; then
+        ws_log_warn "未找到 npu-smi，默认使用 A3 Dev Container 模板" >&2
+    elif ! ws_command_exists timeout; then
+        ws_log_warn "未找到 timeout，跳过硬件检测，默认使用 A3 Dev Container 模板" >&2
+    elif npu_info="$(timeout -k 1s 5s npu-smi info 2>/dev/null)"; then
+        case "$npu_info" in
+            *Ascend950*)
+                variant="a5"
+                ws_log_info "检测到 Ascend950 系列，选择 A5 Dev Container 模板" >&2
+                ;;
+            *Ascend910*)
+                ws_log_info "检测到 Ascend910 系列，选择 A3 Dev Container 模板" >&2
+                ;;
+            *)
+                ws_log_warn "未识别到支持的 NPU 型号，默认使用 A3 Dev Container 模板" >&2
+                ;;
+        esac
+    else
+        npu_status=$?
+        ws_log_warn "npu-smi 查询失败或超时（退出码 $npu_status），默认使用 A3 Dev Container 模板" >&2
+    fi
+
+    echo "$variant"
+}
+
+init_devcontainer_config() {
+    local target_path=".devcontainer/dev/devcontainer.json"
+    local variant
+
+    if [[ -e "$SCRIPT_DIR/$target_path" ]]; then
+        ws_log_skip "$target_path 已存在"
+        return
+    fi
+
+    variant="$(detect_devcontainer_variant)"
+    init_file_from_template "templates/devcontainer.$variant.json.template" "$target_path"
+}
+
 # ---- 1. 初始化本机配置 ----
 ws_log_step "[1/3] 初始化本机配置..."
 
-init_file_from_template "templates/devcontainer.json.template" ".devcontainer/dev/devcontainer.json"
+init_devcontainer_config
 init_file_from_template "templates/devcontainer.env.template" ".devcontainer/.env"
 init_file_from_template "templates/env.template" ".env"
 init_file_from_template "templates/launch.json.template" ".vscode/launch.json"

@@ -23,7 +23,8 @@ vLLM Ascend 开发工作区
 │   ├── analysis/                     #   代码分析产出
 │   └── feature/                      #   特性开发笔记（不入仓库）
 ├── templates/                        # 本机配置模板（入仓库）
-│   ├── devcontainer.json.template    #   dev 版本 Dev Container 配置模板
+│   ├── devcontainer.a3.json.template #   A3 Dev Container 配置模板
+│   ├── devcontainer.a5.json.template #   A5 Dev Container 配置模板
 │   ├── devcontainer.env.template     #   Dev Container 共享代理变量模板
 │   ├── env.template                  #   统一环境变量模板
 │   ├── launch.json.template           #   VSCode 调试配置模板

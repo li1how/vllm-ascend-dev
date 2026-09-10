@@ -39,7 +39,7 @@ ws_require_commands git sed
 ensure_agent_config_dirs() {
     ws_log_step "初始化 AI Agent 配置目录..."
     mkdir -p "$HOME/.codex" "$HOME/.claude"
-    ws_log_ok "~/.codex 和 ~/.claude 已就绪"
+    ws_log_ok "$HOME/.codex 和 $HOME/.claude 已就绪"
 }
 
 fix_atb_env() {
