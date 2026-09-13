@@ -1,0 +1,73 @@
+name: Sync forks
+
+on:
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sync:
+    name: Sync ${{ matrix.repository }}
+    if: github.repository == 'li1how/vllm-ascend-dev'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        repository: [vllm, vllm-ascend]
+    concurrency:
+      group: sync-fork-${{ matrix.repository }}-main
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ secrets.FORK_SYNC_TOKEN }}
+      GH_PROMPT_DISABLED: '1'
+      FORK_OWNER: ${{ github.repository_owner }}
+      SOURCE_REPO: vllm-project/${{ matrix.repository }}
+      TARGET_REPO: ${{ github.repository_owner }}/${{ matrix.repository }}
+    steps:
+      - name: Sync fork and verify
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Check credentials and reject forks with commits absent from upstream.
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error::Add the FORK_SYNC_TOKEN Actions secret to this repository."
+            exit 1
+          fi
+
+          fork_ahead=$(gh api "repos/$SOURCE_REPO/compare/main...$FORK_OWNER:main" --jq '.ahead_by')
+          if [[ "$fork_ahead" != "0" ]]; then
+            echo "::error::$TARGET_REPO/main contains commits absent from upstream; refusing to overwrite or merge."
+            exit 1
+          fi
+
+          # Fast-forward the fork's main branch.
+          gh repo sync "$TARGET_REPO" --source "$SOURCE_REPO" -b main
+
+          # Verify the result and summarize it, allowing for new upstream commits.
+          target_sha=$(gh api "repos/$TARGET_REPO/git/ref/heads/main" --jq '.object.sha')
+          comparison=$(gh api "repos/$SOURCE_REPO/compare/main...$target_sha")
+          target_ahead=$(jq -r '.ahead_by' <<< "$comparison")
+          target_behind=$(jq -r '.behind_by' <<< "$comparison")
+          source_sha=$(jq -r '.base_commit.sha' <<< "$comparison")
+          if [[ "$target_ahead" != "0" ]]; then
+            echo "::error::Verification failed: $TARGET_REPO/main contains commits absent from upstream."
+            exit 1
+          fi
+          if [[ "$target_sha" == "$source_sha" ]]; then
+            result="Matches upstream main exactly."
+          elif [[ "$target_behind" =~ ^[1-9][0-9]*$ ]]; then
+            result="Clean upstream commit; upstream advanced during verification. Next run will catch up."
+            echo "::notice::$result"
+          else
+            echo "::error::Unexpected comparison result; inspect the main branches."
+            exit 1
+          fi
+          {
+            printf '### %s\n\n' "$TARGET_REPO"
+            printf '%s\n\n' "$result"
+            printf -- '- Fork main: %s\n- Observed upstream main: %s\n' "$target_sha" "$source_sha"
+          } >> "$GITHUB_STEP_SUMMARY"

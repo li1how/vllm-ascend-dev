@@ -16,6 +16,9 @@ vLLM Ascend 开发工作区
 │   ├── post-create.sh                #   各版本共用的容器创建后初始化脚本
 │   └── <version>/                    #
 │       └── devcontainer.json         #   各版本 Dev Container 配置（由模板生成，不入仓库）
+├── .github/
+│   └── workflows/
+│       └── sync-forks.yml            #   定时同步 vLLM 与 vLLM Ascend fork
 ├── .vscode/                          # VSCode 项目配置
 │   ├── launch.json                    #   VSCode 本机调试配置（由模板生成，不入仓库）
 │   └── settings.json                  #   VSCode 工作区设置
