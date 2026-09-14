@@ -21,6 +21,12 @@ description: 在 vllm-ascend-dev 工作区中按当前 vllm-ascend 仓库规则�
 
 ## 每次执行前读取当前规则
 
+Git 操作针对本次实际开发的 checkout，本地和远端容器均可使用。为跨机验证
+准备提交时，只执行需要的提交、推送步骤，不自动创建 PR；双端同步方式见
+[remote-execution](../remote-execution/SKILL.md)。远端已有修改先
+提交并同步回当前端，不能覆盖。PR 的验证记录应包含实际执行端和提交 SHA，
+并区分本地静态检查、dirty 工作树上的调试和目标容器内的运行结果。
+
 先读取工作区入口和仓库规则，再做 Git 操作：
 
 1. 在工作区根目录读取 `README.md` 和 `AGENTS.md`，确认多仓库布局、目标目录和环境说明。

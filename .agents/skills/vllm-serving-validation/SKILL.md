@@ -37,6 +37,12 @@ Python 或 NPU 可用性问题时使用 `vllm-runtime-diagnosis`；目标是性�
 
 ## 执行流程
 
+可在当前容器直接运行；跨机时按 [remote-execution](../remote-execution/SKILL.md)
+同步本轮提交，在选定容器运行同一套脚本并核对各仓库 SHA；新环境先用 `remote-init` 准备。
+managed runner 整体在服务所在容器执行，case 的 command/cwd/env 均属于该端。
+报告沿用脚本指定的输出目录，按需取回；远端临时修改如实标注 dirty。
+SSH 断线后先查看远端日志和进程，只清理本任务启动的服务，不自动重跑。
+
 1. 动态发现实际 base URL、endpoint、served model 和 request payload。
 2. 在 profiler 外运行 `request_probe.py`，检查规范化输出。
 3. 编写可复现 case。两侧服务都已运行时使用 existing 模式；否则为两侧提供

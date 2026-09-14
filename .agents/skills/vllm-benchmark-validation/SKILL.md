@@ -27,6 +27,11 @@ description: 使用 AISBench benchmark 对 vLLM、vLLM-Ascend 或其他 AISBench
 
 ## 执行流程
 
+保留当前环境直接运行。跨机评测按 [remote-execution](../remote-execution/SKILL.md)
+选择目标、通过 Git 同步所需提交，产物沿用原输出目录并按需取回。benchmark
+仓库仅在需要时加入同步，私有数据集和配置独立准备。固定客户端执行位置，避免
+将客户端或网络变化误认为模型性能变化；离线报告解析可在任一端执行。
+
 ### 1. 固定测试上下文
 
 记录并在最终报告中保留：

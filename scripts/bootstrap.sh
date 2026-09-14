@@ -38,10 +38,21 @@ echo " vllm-ascend-dev 工作区初始化"
 echo "============================================"
 echo ""
 
+require_checkout() {
+    local dir_name="$1"
+    local actual_root
+    if ! actual_root="$(git -C "$SCRIPT_DIR/$dir_name" rev-parse --show-toplevel 2>/dev/null)" \
+        || [[ "$(cd "$actual_root" && pwd -P)" != "$(cd "$SCRIPT_DIR/$dir_name" && pwd -P)" ]]; then
+        ws_log_error "$dir_name 已存在，但不是独立 Git 工作目录；保留原目录并停止初始化"
+        exit 1
+    fi
+}
+
 clone_if_missing() {
     local repo_url="$1"
     local dir_name="$2"
-    if [[ -d "$SCRIPT_DIR/$dir_name" ]]; then
+    if [[ -e "$SCRIPT_DIR/$dir_name" ]]; then
+        require_checkout "$dir_name"
         ws_log_skip "$dir_name 已存在"
     else
         echo "  [CLONE] $repo_url"
@@ -156,7 +167,12 @@ echo ""
 
 # ---- 1.5. 配置 benchmark 本地 git ignore（仅当 benchmark 已存在时） ----
 if [[ -d "$SCRIPT_DIR/benchmark" ]]; then
-    EXCLUDE_FILE="$SCRIPT_DIR/benchmark/.git/info/exclude"
+    require_checkout "benchmark"
+    EXCLUDE_FILE="$(git -C "$SCRIPT_DIR/benchmark" rev-parse --git-path info/exclude)"
+    if [[ "$EXCLUDE_FILE" != /* ]]; then
+        EXCLUDE_FILE="$SCRIPT_DIR/benchmark/$EXCLUDE_FILE"
+    fi
+    mkdir -p "$(dirname "$EXCLUDE_FILE")"
     if grep -q "^outputs/" "$EXCLUDE_FILE" 2>/dev/null; then
         ws_log_skip "benchmark .git/info/exclude 已配置"
     else

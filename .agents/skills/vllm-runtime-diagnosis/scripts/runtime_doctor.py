@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Diagnose vLLM workspace, source-install, Git, Python, and optional NPU state."""
+"""Diagnose the vLLM Ascend NPU runtime, source installs, and optional device state."""
 
 from __future__ import annotations
 
@@ -18,8 +18,12 @@ MODULE_DISTRIBUTIONS = {
     "torch": "torch",
     "torch_npu": "torch-npu",
 }
-TOOLS = ("vllm", "pytest", "ruff", "pre-commit", "gh", "conda")
-SAFE_ENV_NAMES = ("ASCEND_RT_VISIBLE_DEVICES", "NPU_VISIBLE_DEVICES", "CUDA_VISIBLE_DEVICES")
+TOOLS = ("vllm", "conda")
+SAFE_ENV_NAMES = (
+    "ASCEND_RT_VISIBLE_DEVICES",
+    "NPU_VISIBLE_DEVICES",
+    "CUDA_VISIBLE_DEVICES",
+)
 CANN_ENV_NAMES = (
     "ASCEND_HOME_PATH",
     "ASCEND_OPP_PATH",
@@ -90,7 +94,9 @@ def git_info(path: Path) -> dict[str, Any]:
         "is_git": True,
         "branch": value("branch", "--show-current"),
         "head": value("rev-parse", "HEAD"),
-        "upstream": value("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"),
+        "upstream": value(
+            "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+        ),
         "dirty": bool(status),
         "status": status.splitlines() if status else [],
     }
@@ -399,7 +405,9 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
         repo_path = workspace / name
         repositories[name] = git_info(repo_path)
         if not repositories[name]["is_git"]:
-            add_issue(issues, "error", f"{name}-repo", f"{repo_path} is not a Git repository")
+            add_issue(
+                issues, "error", f"{name}-repo", f"{repo_path} is not a Git repository"
+            )
 
     modules = {
         name: module_info(
@@ -419,6 +427,13 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
         if not module.get("available"):
             add_issue(issues, "error", f"{name}-import", f"{name} is not importable")
             continue
+        if module.get("import_error") or module.get("probe_error"):
+            add_issue(
+                issues,
+                "error",
+                f"{name}-import",
+                str(module.get("import_error") or module["probe_error"]),
+            )
         actual = module_source_path(module)
         if not path_is_within(actual, expected):
             add_issue(
@@ -430,7 +445,9 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
     for name in ("torch", "torch_npu"):
         module = modules[name]
         if not module.get("available"):
-            severity = "warning" if name == "torch_npu" and npu_mode == "skip" else "error"
+            severity = (
+                "warning" if name == "torch_npu" and npu_mode == "skip" else "error"
+            )
             add_issue(
                 issues,
                 severity,
@@ -444,7 +461,9 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
     tools = {name: shutil.which(name) for name in TOOLS}
     for name, path in tools.items():
         if path is None:
-            add_issue(issues, "warning", f"tool-{name}", f"optional command not found: {name}")
+            add_issue(
+                issues, "warning", f"tool-{name}", f"optional command not found: {name}"
+            )
 
     npu = npu_info(npu_mode, timeout_sec)
     add_npu_issues(issues, npu, npu_mode)
@@ -511,7 +530,9 @@ def print_human(report: dict[str, Any]) -> None:
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workspace", type=Path)
-    parser.add_argument("--npu-mode", choices=("skip", "auto", "required"), default="skip")
+    parser.add_argument(
+        "--npu-mode", choices=("skip", "auto", "required"), default="skip"
+    )
     parser.add_argument("--timeout-sec", type=float, default=20)
     parser.add_argument(
         "--json-output",
@@ -528,13 +549,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.timeout_sec <= 0:
         print("error: --timeout-sec must be positive", file=sys.stderr)
         return 2
-    workspace = args.workspace.resolve() if args.workspace else find_workspace(Path.cwd())
+    workspace = (
+        args.workspace.resolve() if args.workspace else find_workspace(Path.cwd())
+    )
     if workspace is None or not workspace.is_dir():
         print("error: could not locate a vLLM workspace", file=sys.stderr)
         return 2
     report = diagnose(workspace, args.npu_mode, args.timeout_sec)
     if args.json_output:
-        serialized = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        serialized = (
+            json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+        )
         if args.json_output == "-":
             print(serialized, end="")
         else:

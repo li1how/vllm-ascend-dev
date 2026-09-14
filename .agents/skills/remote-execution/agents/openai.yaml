@@ -1,0 +1,4 @@
+interface:
+  display_name: "远端同步与执行"
+  short_description: "使用原生 Git、SSH 和 Dev Container CLI 同步源码与执行命令"
+  default_prompt: "使用 $remote-execution 确定执行位置，通过原生命令完成本次代码同步或命令执行，并汇报结果。"

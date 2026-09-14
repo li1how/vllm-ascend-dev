@@ -1,6 +1,6 @@
 # vllm-ascend-dev
 
-vLLM Ascend 开发工作区
+vLLM Ascend 开发工作区，支持本地或远端开发，以及就地或跨机测试。
 
 ## 目录结构
 
@@ -75,10 +75,18 @@ vLLM Ascend 开发工作区
 git clone git@github.com:li1how/vllm-ascend-dev.git
 cd vllm-ascend-dev
 ./scripts/bootstrap.sh                        # 默认：仅克隆 vllm + vllm-ascend
-./scripts/bootstrap.sh -b | --with-benchmark   # 同时克隆 benchmark 仓库
+./scripts/bootstrap.sh -b                     # 同时克隆 benchmark 仓库
 ```
 
 首次运行 `bootstrap.sh` 时，会在目标文件缺失时从 `templates/` 复制部分本机配置文件；已经存在的本机配置不会被覆盖。
+
+### 开发与测试
+
+代码可在本地或远端容器中开发，检查和测试可在当前环境执行，也可通过 SSH 调用远端容器。
+跨机执行前通过 Git 同步代码；需要 NPU 的测试在具备 NPU 的容器中运行。
+
+[remote-init](.agents/skills/remote-init/SKILL.md) 定义容器初始化和 editable 源码安装流程；
+[remote-execution](.agents/skills/remote-execution/SKILL.md) 说明如何通过 Git 同步代码、在指定环境执行命令。serving、benchmark、profiling 等 Skill 沿用原有工具。
 
 ## 脚本速查
 

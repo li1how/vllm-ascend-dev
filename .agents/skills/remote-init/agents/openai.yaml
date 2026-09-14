@@ -1,0 +1,4 @@
+interface:
+  display_name: "远端环境初始化"
+  short_description: "按节点实际配置初始化 Dev Container，直接安装源码并诊断环境"
+  default_prompt: "使用 $remote-init 准备指定节点的工作区和容器，确认镜像、对齐源码后调用原有安装与诊断工具。"

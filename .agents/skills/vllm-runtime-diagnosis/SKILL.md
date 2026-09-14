@@ -1,12 +1,21 @@
 ---
 name: vllm-runtime-diagnosis
-description: 诊断 vLLM 与 vLLM-Ascend 工作区的运行环境状态。用于排查 editable 源码错误、import 未生效、Python 或 CLI 不匹配、Git branch 和 dirty 状态、开发工具缺失、torch/torch_npu import 失败、NPU 可见性以及环境预检问题。
+description: 诊断实际运行 vLLM-Ascend 的 NPU 环境，支持在当前环境执行或通过 SSH 检查远端容器。用于排查 Python 与源码安装来源、运行依赖、torch/torch_npu import 和 NPU 可见性问题。
 ---
 
-# vLLM 运行环境诊断
+# vLLM Ascend NPU 环境诊断
 
-调试应用行为前，先用本 Skill 确认实际生效的源码和运行环境。模型架构、并行
-策略、KV cache、attention、服务正确性和性能分析分别交给对应专项 Skill。
+调试应用行为前，先确认目标 NPU 环境中实际生效的源码和运行依赖。模型架构、
+并行策略、KV cache、attention、服务正确性和性能分析交给对应专项 Skill。
+
+## 执行位置
+
+- 已在目标 NPU 宿主机或容器中时，就地运行诊断脚本。
+- 本地仅作为开发或控制端时，通过 [remote-execution](../remote-execution/SKILL.md)
+  在指定远端容器运行同一脚本，不诊断控制端的通用开发环境。
+
+两种调用方式检查相同内容，报告标明实际执行端，日志沿用脚本输出位置并按需取回；
+初始化或修复 editable 来源使用 [remote-init](../remote-init/SKILL.md)。
 
 ## 边界
 
@@ -15,7 +24,7 @@ description: 诊断 vLLM 与 vLLM-Ascend 工作区的运行环境状态。用于
   NPU 检查时才允许初始化 NPU。
 - 不输出代理 URL、凭据、token 或完整环境变量。
 - `vllm` 或 `vllm_ascend` 解析到工作区对应仓库之外时记为 error；缺少可选
-  开发命令时记为 warning。
+  运行环境命令时记为 warning。
 - 可能初始化设备的 import 必须放在带超时的隔离子进程中。
 - 真实 NPU 检查必须在能访问 `/dev/davinci*` 等设备节点的宿主机或已映射
   NPU 的容器中执行。当前环境看不到设备节点时，记为 `not_verifiable`，不把
@@ -40,7 +49,7 @@ python <skill-dir>/scripts/runtime_doctor.py --npu-mode auto
 - branch、HEAD、upstream 和 dirty 状态；
 - 当前 Python，以及 `vllm`、`vllm_ascend`、`torch`、`torch_npu` 的版本、
   import 路径和 editable 安装来源；
-- `vllm`、`pytest`、`ruff`、`pre-commit`、`gh` 和 `conda` 命令可用性。
+- `vllm` 和 `conda` 命令可用性。
 
 `--npu-mode auto` 先检查 NPU 设备节点；设备可见时再运行 `npu-smi`，并在
 子进程中执行 `torch_npu` 设备探测。报告区分 `available`、`unavailable`、

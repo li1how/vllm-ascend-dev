@@ -77,7 +77,7 @@ class RuntimeDoctorTests(unittest.TestCase):
                 report = runtime_doctor.diagnose(workspace, "skip", 1)
             codes = {issue["code"] for issue in report["issues"]}
             self.assertIn("vllm-source", codes)
-            self.assertIn("tool-ruff", codes)
+            self.assertIn("tool-vllm", codes)
             self.assertNotIn("vllm_ascend-source", codes)
 
     def test_json_doctor_output(self) -> None:

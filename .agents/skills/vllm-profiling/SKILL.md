@@ -22,9 +22,14 @@ profile，定位热点，实施范围明确的修改，然后在相同条件下�
 - 保留无关改动、服务日志、原始 profile、分析归档和 `PROFILE_HISTORY`。
 - 不停止非本任务启动的服务。`stop_profile` 只表示停止采集，不代表服务退出。
 - 没有可比的 baseline 和 candidate 测量时，不得声称优化有效。
-- 不自动提交。只有用户明确要求 commit 或 PR 时，才使用 `vllm-ascend-pr`。
+- 需要跨机验证时，按当前任务已授权的 Git 同步流程提交、推送本轮修改；其余情况不主动提交。vllm-ascend 的提交按 `vllm-ascend-pr` 中对应规则处理，不自动创建 PR。
 
 ## 资源
+
+就地采集方式保留。跨机采集按 [remote-execution](../remote-execution/SKILL.md)
+固定源码提交、执行目标和日志位置，调用同一套工具。原始 profile 的采集与 `profile-analyse.sh` 在具备
+torch_npu 的环境运行，比较脚本可在任一端解析已取回的产物；大体积原始数据
+按需取回，不加入源码提交。取消任务时只清理本任务拥有的服务。
 
 - 工作区 `scripts/profile-analyse.sh` 是供开发者使用的已文档化解析工具。
   从工作区动态发现其路径，不要把它复制到本 Skill。
