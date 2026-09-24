@@ -36,6 +36,7 @@ vLLM Ascend 开发工作区，支持本地或远端开发，以及就地或跨�
 │   ├── d_server.sh.template           #   vLLM Decode 服务启动脚本模板
 │   └── proxy_server.sh.template       #   vLLM PD Proxy 启动脚本模板
 ├── scripts/                          # 辅助脚本
+│   ├── tests/                        #   脚本回归测试
 │   ├── lib/
 │   │   ├── bark_mcp_config_helper.py  #   Bark MCP TOML / JSON 配置修改 helper
 │   │   └── common.sh                  #   Bash 脚本公共函数库
@@ -55,7 +56,11 @@ vLLM Ascend 开发工作区，支持本地或远端开发，以及就地或跨�
 │   ├── proxy_server.sh               #   本机 vLLM PD Proxy 启动脚本（由模板生成，不入仓库）
 │   └── setup-ssh-key.sh              #   SSH 密钥初始化与公钥安装
 ├── benchmark-outputs/                # 基准测试产物（不入仓库）
-├── log/                              # vLLM 服务日志（不入仓库）
+├── log/                              # 服务日志（不入仓库）
+├── .cache/                           # 节点本地持久构建缓存（不入仓库）
+├── task-cards/                       # 任务卡（不入仓库）
+│   ├── <任务ID>/                     # 当前任务卡和实际脚本
+│   └── archive/                      # 已结束任务卡与产物
 ├── weekly-report/                    # 周报产出（不入仓库）
 ├── tmp/                              # 临时文件（不入仓库）
 ├── pkg/                              # 大二进制包（不入仓库）
@@ -87,6 +92,64 @@ cd vllm-ascend-dev
 
 [remote-init](.agents/skills/remote-init/SKILL.md) 定义容器初始化和 editable 源码安装流程；
 [remote-execution](.agents/skills/remote-execution/SKILL.md) 说明如何通过 Git 同步代码、在指定环境执行命令。serving、benchmark、profiling 等 Skill 沿用原有工具。
+初始化会准备缺失的 CLI、处理代理证书并检查安装来源与依赖。默认使用各节点本地盘
+工作区，源码通过 Git 同步、缓存通过快照复制；同一物理 checkout 的源码更新与构建
+串行执行。安装完成不代表模型测试或全部依赖检查通过。
+
+### 本地开发与远端测试
+
+1. 用 NPU Monitor MCP 的 `list_hosts`、`rank_idle_hosts` 和 `get_host_state` 选候选，
+   分别检查 NPU 与容器采集时间；信息过期时分别刷新。新建容器先用
+   `list_host_images` 展示候选并确定镜像；复用容器核对实际镜像 ID。MCP 不可用时
+   使用只读 SSH 查询并记录来源。执行前复核占用，空闲结果不是资源预留。
+2. 以本地开发 checkout 的提交为准同步各仓库，在选定远端的原 checkout 对齐指定
+   SHA。记录远端原分支、SHA 和 dirty 状态，核对路径与来源；不建 worktree，保留
+   本地路径与缓存。先用宿主机 `findmnt -T` 核实底层文件系统，容器内路径统一为
+   `/workspaces/vllm-ascend-dev`。源码同步、安装、普通命令及 Git 操作直接按
+   [remote-execution](.agents/skills/remote-execution/SKILL.md) 执行，不建任务卡。
+3. 用远端入口 `inspect` 核验容器、editable 来源、缓存和权重；从已核验节点按
+   [缓存复制流程](.agents/skills/remote-init/references/cache-transfer.md) 将有效条目
+   恢复到节点本地 `.cache/vllm-ascend/csrc-build-cache`，共享盘仅中转快照。
+   构建现场仅在原生输入、环境和容器内路径匹配时恢复，目标已有构建目录保留。
+   需要安装时用 `prepare --build-cache-dir <容器内目录>` 按需调用现有
+   `install-vllm-source.sh`，先 vLLM 后 vLLM-Ascend，继续正常构建并复用缓存。
+   仅 Python 代码变化且 editable 来源正确时无需重装，但要重启服务。
+4. **启动 vLLM 服务或执行模型测试时才建任务卡。** 当前卡片放在
+   `task-cards/<任务ID>/`，完成后归档到 `task-cards/archive/<任务ID>/`。服务卡
+   从 `templates/server.sh.template`（或 P/D、Proxy 对应的现有模板）生成实际
+   `run.sh`；测试卡直接在 `run.sh` 写短请求、AISBench 等实际命令。先登记目标
+   SHA、节点容器和阶段，再编辑脚本、`seal`、`run`。脚本快照、日志和退出码保留
+   在卡内 `runs/`；断线后查 `status`，不自动重跑。任务卡不提交。
+
+示例（源码已同步且容器已确定）：
+
+```bash
+remote=(python3 .agents/skills/remote-execution/scripts/remote-task.py --ssh-config "$SSH_CONFIG" --host "$SSH_HOST" \
+  --container-id "$CONTAINER_ID" --workspace-folder "$HOST_WORKSPACE" --config "$HOST_DEVCONTAINER_CONFIG" --discovery-source mcp)
+"${remote[@]}" inspect --weight "$MODEL_PATH"
+"${remote[@]}" prepare --jobs 32 --build-cache-dir /workspaces/vllm-ascend-dev/.cache/vllm-ascend/csrc-build-cache
+
+"${remote[@]}" task create --title "PCP 服务" --repository vllm-ascend \
+  --branch "$ASCEND_BRANCH" --candidate-sha "$ASCEND_SHA" --vllm-sha "$VLLM_SHA" \
+  --allow serve --change "启动 PCP 服务" --stage "serve=$ASCEND_SHA" --template server
+# 在返回的 task-cards/<TASK_ID>/run.sh 中修改模型、网络和启动参数
+"${remote[@]}" task seal "$TASK_ID"
+"${remote[@]}" run --case serve --task-id "$TASK_ID" --stage serve --operation serve
+"${remote[@]}" status "$RUN_ID"
+
+"${remote[@]}" task create --title "PCP 冒烟" --repository vllm-ascend \
+  --branch "$ASCEND_BRANCH" --candidate-sha "$ASCEND_SHA" --vllm-sha "$VLLM_SHA" \
+  --allow test --change "运行短请求和小样本测试" --stage "smoke=$ASCEND_SHA"
+# 在返回的另一张任务卡 run.sh 中写明实际测试命令，再 seal 和 run
+"${remote[@]}" task seal "$SMOKE_TASK_ID"
+"${remote[@]}" run --case smoke --task-id "$SMOKE_TASK_ID" --stage smoke --operation test
+"${remote[@]}" status "$SMOKE_RUN_ID"
+"${remote[@]}" task archive "$SMOKE_TASK_ID" --outcome complete --summary "冒烟完成"
+```
+
+Agent 内部入口位于 `.agents/skills/remote-execution/scripts/`。服务和测试的计划或
+命令变化时先 `task update`，再修改卡内脚本并重新 `seal`。运行中的服务脚本应保持
+前台，以便任务卡状态反映真实进程。密钥只通过 Dev Container 环境传入。
 
 ## 脚本速查
 
@@ -98,11 +161,11 @@ cd vllm-ascend-dev
 | `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
 | `install-pre-commit.sh` | 使用 APT/YUM 与 pip 安装 vllm-ascend lint 依赖，预热并启用 Git hooks | 无参数；`-h` 查看帮助 |
-| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
+| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 优先使用节点本地 `/var/tmp/`，回退工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 显式清理构建现场；`-t <dir>` 临时目录；`-j <数>` 并发；`--build-cache-dir <dir>` 持久增量缓存（默认 `.cache/vllm-ascend/csrc-build-cache`） |
 | `process-trace.sh` | 根据宿主机进程 PID 查询运行目录、容器运行时、容器 ID、名称和状态 | 直接传 `<pid>`（推荐），或使用 `-p | --pid <pid>` |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
-| `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--` 透传额外参数 |
+| `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--max-runtime-seconds` 可选总时限；`--` 透传额外参数 |
 | `server.sh` | 本机 vLLM 单体服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
 | `p_server.sh` | 本机 vLLM Prefill 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
 | `d_server.sh` | 本机 vLLM Decode 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
@@ -111,6 +174,10 @@ cd vllm-ascend-dev
 | `.devcontainer/post-create.sh` | 各个 Dev Container 创建后初始化 | 由 devcontainer 自动调用 |
 
 带命令行参数的工作区辅助脚本支持 `-h | --help` 查看完整用法；本机服务启动脚本通过文件中的命令数组直接修改部署参数。
+
+安装统计位于 `log/install-source.*/summary.json`，记录退出码、组件耗时、并发和
+HIT/MISS/BYPASS；`ascend-build.log` 保留原生构建输出。远端 `prepare` 关联这些
+统计记录。未产生缓存事件时明确标记统计不可用，不把零事件视为全部命中。
 
 ## 环境
 

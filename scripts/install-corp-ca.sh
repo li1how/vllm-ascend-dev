@@ -90,7 +90,7 @@ CA_FILE="$WS_CA_ANCHOR_DIR/${CA_NAME}.crt"
 
 # ---- 幂等检查 ----
 if ! $FORCE; then
-    if curl -sS -o /dev/null --max-time 10 --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
+    if curl -sS -o /dev/null --max-time 10 --noproxy "" --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
         ws_log_skip "系统已信任公司代理 CA，无需重装（用 -f | --force 强制重装）"
         exit 0
     fi
@@ -148,7 +148,7 @@ ws_log_ok "${WS_CA_UPDATE_COMMAND[*]}: $UPD_OUT"
 
 # ---- 验证 ----
 ws_log_step "验证 TLS 信任..."
-if curl -sS -o /dev/null --max-time 15 --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
+if curl -sS -o /dev/null --max-time 15 --noproxy "" --proxy "$PROXY" "https://$TARGET_HOST/" 2>/dev/null; then
     ws_log_ok "公司代理 CA 已安装并信任"
 else
     ws_log_error "安装后验证仍失败，请检查代理与证书链"

@@ -15,14 +15,17 @@
 /tmp/
 /vllm_profile/
 /log/
+/task-cards/
 /kernel_meta/
 /extra-info/
+/.cache/
 
 # === 本机私有 Skill ===
 /.agents/skills/zhaopin/
 
 # === 本机配置（由 templates/ 初始化，不入仓库）===
 /.devcontainer/.env
+/.devcontainer/*/.env
 /.devcontainer/*/devcontainer.json
 /.vscode/launch.json
 /scripts/server.sh

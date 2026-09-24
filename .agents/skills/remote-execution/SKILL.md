@@ -35,14 +35,28 @@ SSH 工具保留括号别名、Windows/WSL 路径、密钥和跳板兼容，不�
 
 ## Git 同步
 
-各仓库分别使用原生 Git 命令，只同步本次需要的仓库。先核对双方 remote、
-分支、SHA 和 `git status`；按用户授权提交并推送到个人 fork，再在接收端
-fetch 该提交，用 `git merge --ff-only <SHA>` 更新并核对实际 HEAD。
-首次切换任务分支需明确目标；未修改的依赖仓库可保持固定 SHA 和 detached HEAD。
+先分清开发 checkout（本次源码权威）和选定的远端执行 checkout（可覆盖副本）。
+各独立仓库只同步本次需要的提交：在开发 checkout 核对 remote、分支、SHA 和
+`git status`，按本次授权提交并推送；开发 checkout 的未提交修改不丢弃。若用户
+明确要保留远端直接修改的代码，则先将该远端 checkout 视为开发端并提交、推送。
 
-远端直接修改后，同样提交、推送，再在本地获取。接收端有未提交修改、历史分叉
-或仓库来源不符时停止，不自动 stash、reset 或强推。运行中的测试使用哪个
-checkout，就保持该 checkout 稳定。私有配置、权重和产物不参与源码同步。
+在远端执行 checkout 核对实际物理路径、Git 根目录和仓库来源，记录覆盖前的
+分支、SHA、dirty 状态；来源或路径不符时停止，避免覆盖错仓库。确认目标提交
+可从指定 remote 获取后，在**原 checkout** fetch 并强制对齐该准确 SHA（例如
+`git -C "$REMOTE_REPO" switch --detach --force "$TARGET_SHA"`），再核对 HEAD。
+远端执行副本的未提交源码修改或分叉无需保留，不自动 stash，也不为此创建
+worktree、独立副本或请求许可。不使用 `git clean -fdx`，只在未跟踪文件确实
+阻碍切换时处理具体冲突文件；私有配置、权重、日志和构建缓存不参与源码覆盖。
+不对任何 remote 强推。两端实际指向同一物理 checkout 时，直接使用该源码，
+不执行覆盖。
+
+默认在各节点本地盘工作区执行，通过宿主机 `findmnt -T` 核实底层文件系统。
+不同节点即使路径相同也使用各自 checkout；共享盘只中转缓存快照。容器内路径
+按初始化私有配置统一为 `/workspaces/vllm-ascend-dev`。同一物理 checkout 的
+更新与构建串行进行。检查任务记录、进程工作目录、启动参数、
+挂载与 editable 来源等能指向同一物理源码路径的证据；仅在换码或编译会影响
+已证实使用该路径的运行任务时协调。其他容器有进程、占用 NPU 或含同名仓库，
+都不能单独证明源码冲突，不据此停下询问。只停止本任务启动的进程。
 
 ## 日志与结果
 
@@ -52,3 +66,42 @@ checkout，就保持该 checkout 稳定。私有配置、权重和产物不参�
 
 文件按需通过原生文件传输或 SSH 读取取回，明确两端路径，保留已有产物。
 汇报执行目标、涉及仓库的 SHA/dirty、退出码和日志位置，不声称未执行的验证通过。
+
+## 统一远端入口
+
+优先用 NPU Monitor MCP `list_hosts`、`rank_idle_hosts`、`get_host_state` 选机；
+分别查看 NPU 与容器的采集时间。NPU 状态过期调用 `refresh_hosts`，仅容器信息过旧
+调用 `refresh_containers`，新建容器前用 `list_host_images` 展示镜像候选并由用户
+选择。复用容器读取其实际 image ID。MCP 不可用时用只读 SSH 查询并在运行记录中
+注明来源。空闲状态不保证资源预留，执行前复核占用。
+
+源码修改、Git 同步、安装、普通命令、静态检查和 UT 沿用对应工具直接执行，
+无需任务卡。统一远端入口 `scripts/remote-task.py` 显式接收 `--ssh-config`、
+`--host`、完整 `--container-id`、宿主机 `--workspace-folder` 和 `--config`。
+它先以只读 Docker inspect 核对容器身份、配置和 bind mount，再用
+`devcontainer exec` 执行，使代理环境生效。`inspect` 核验 editable 来源、
+缓存和指定权重；`weight record/list/verify` 管理节点私有权重清单。
+`prepare --jobs <数量> --build-cache-dir <容器内目录>` 根据来源、原生输入和安装记录按需调用
+`install-vllm-source.sh`，先 vLLM 后 vLLM-Ascend；只改 Python 代码时复用
+editable 安装并提示重启服务。缓存默认位于本地工作区
+`.cache/vllm-ascend/csrc-build-cache`；复制使用 remote-init 的
+[缓存工具](../remote-init/references/cache-transfer.md)。构建现场失配时报告具体项，
+不自动删除。安装退出码、组件耗时与缓存统计保存在 `log/install-source.*/summary.json`，
+`prepare` 关联这些记录；缓存统计不可用时明确报告，不将零次事件视为全部命中。
+
+仅在**启动 vLLM 服务或执行模型、AISBench 等运行测试**时用本 Skill 的
+`scripts/task-card.py` 创建 `task-cards/<任务ID>/`。登记仓库版本、节点、
+容器、允许操作 `serve` 或 `test` 和阶段。单体服务使用
+`templates/server.sh.template` 生成卡内 `run.sh`；P/D 和 Proxy 使用各自现有
+服务模板。测试命令直接写入卡内 `run.sh`，不新增通用模板。计划或命令变化时先
+`task update`，再修改脚本、`task seal`。`run` 核对脚本、源码摘要、阶段与执行
+目标，执行快照保存在卡内 `runs/`。完成后用 `task archive` 移至
+`task-cards/archive/<任务ID>/`。
+
+远端按 `task create/update/seal` → `run --case <用例> --task-id <任务ID>
+--stage <阶段> --operation serve/test` → `status <运行ID>` → `task archive` 执行。
+`log/remote-runs/<用例>-<运行ID>/` 保存容器、镜像、源码、日志、耗时和退出码。
+服务脚本保持前台，状态才反映服务进程；SSH 断线后先查状态与日志，不自动重跑。
+密钥只通过容器环境传入。先做短请求与小样本冒烟，再运行正式测试；benchmark 的
+`--max-runtime-seconds` 可选，触及时逐题产物保留，结果标记不完整。
+未指定测试节点时不启动远端模型。
