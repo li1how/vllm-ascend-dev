@@ -36,6 +36,7 @@ vLLM Ascend 开发工作区，支持本地或远端开发，以及就地或跨�
 │   ├── d_server.sh.template           #   vLLM Decode 服务启动脚本模板
 │   └── proxy_server.sh.template       #   vLLM PD Proxy 启动脚本模板
 ├── scripts/                          # 辅助脚本
+│   ├── tests/                        #   脚本回归测试
 │   ├── lib/
 │   │   ├── bark_mcp_config_helper.py  #   Bark MCP TOML / JSON 配置修改 helper
 │   │   └── common.sh                  #   Bash 脚本公共函数库
@@ -87,6 +88,48 @@ cd vllm-ascend-dev
 
 [remote-init](.agents/skills/remote-init/SKILL.md) 定义容器初始化和 editable 源码安装流程；
 [remote-execution](.agents/skills/remote-execution/SKILL.md) 说明如何通过 Git 同步代码、在指定环境执行命令。serving、benchmark、profiling 等 Skill 沿用原有工具。
+初始化会准备缺失的 CLI、处理代理证书并检查安装来源与依赖。同一共享盘统一复用
+工作区，源码更新和构建串行执行；安装完成不代表模型测试或全部依赖检查通过。
+
+### 本地开发与远端测试
+
+1. 用 NPU Monitor MCP 的 `list_hosts`、`rank_idle_hosts` 和 `get_host_state` 选候选；
+   分别检查 NPU、容器采集时间。过期时调用 `refresh_hosts` 或只刷新容器的
+   `refresh_containers`。新建容器先调用 `list_host_images` 展示候选并确定镜像；
+   复用容器核对当前镜像 ID。MCP 不可用时使用只读 SSH 查询并记录信息来源。
+   空闲结果不是资源预留，执行前仍需复核占用。
+2. 以本地开发 checkout 的提交为准，分别推送需要同步的仓库。在选定远端执行
+   checkout 记录原分支、SHA、dirty 状态，核对路径和来源后 fetch 并在原路径
+   对齐指定提交；远端未提交的源码修改和分叉不阻止覆盖，也不因此创建 worktree
+   或独立源码副本。复用的是共享路径、配置和构建缓存，不是旧源码。仅当有具体
+   证据表明任务正使用同一物理 checkout 或将被覆盖的编译产物时协调换码；其他
+   容器有进程或占用 NPU 本身不阻止同步。两端是同一物理 checkout 时不执行覆盖。
+   根仓库和两份源码是独立 Git 仓库。
+3. 用 `scripts/remote-task.py` 指定 SSH 配置、节点、完整容器 ID、宿主机工作区与
+   Dev Container 配置路径，依次执行 `inspect`、`prepare`、`run`、`status`。
+   它会先核对 Docker 的容器身份和 bind mount，再用 `devcontainer exec` 执行。
+   `prepare` 在正确 editable 来源且仅 Python 源码变化时跳过安装；依赖元数据或
+   原生输入变化时调用现有安装脚本，保留构建缓存。首次缺少安装指纹但来源正确时
+   报告 `unverified_skip`，由人工核对。服务进程需重启才能加载改动。
+4. 从每个用例独立输出目录启动原命令。先用现有 serving 探针做短请求，再运行
+   AISBench 小样本冒烟和正式用例。`run` 返回运行 ID；断线后用 `status` 查看原任务，
+   不自动重跑。运行记录、日志和节点私有权重清单在 `log/`，均不提交。
+
+示例（先设置当前选定节点的非敏感参数）：
+
+```bash
+remote=(python3 scripts/remote-task.py --ssh-config "$SSH_CONFIG" --host "$SSH_HOST" \
+  --container-id "$CONTAINER_ID" --workspace-folder "$HOST_WORKSPACE" --config "$HOST_DEVCONTAINER_CONFIG" --discovery-source mcp)
+"${remote[@]}" inspect --weight "$MODEL_PATH"
+"${remote[@]}" prepare --jobs 32
+"${remote[@]}" weight record --path "$MODEL_PATH" --model model-name --purpose smoke --mount /models
+"${remote[@]}" run --case smoke -- ./scripts/run-benchmark.sh -d gpqa_gen -n 2
+"${remote[@]}" status "$RUN_ID"
+```
+
+密钥通过 Dev Container 环境传入，不放在命令参数或执行记录中。`run` 不解释 shell
+语法；需要管道或环境包装时显式传 `bash -c`。`prepare` 不自动清理缓存；CANN
+路径失配会报告具体项并停止安装。安装脚本无参数仍执行既有完整重装语义。
 
 ## 脚本速查
 
@@ -98,11 +141,12 @@ cd vllm-ascend-dev
 | `install-ascend-stack.sh` | 从指定包目录按项安装 CANN / torch_npu / triton_ascend | `-p <dir>` 或 `-p <version>` 指定包目录或 `pkg/` 下版本名；`-i cann,torch_npu,triton_ascend,all` 指定安装项；`-y` 确认执行；`--dry-run` 仅预览 |
 | `install-corp-ca.sh` | 安装公司代理 MITM 根 CA 到系统信任库 | `-p <host:port>` 指定代理；`-f` 强制重装 |
 | `install-pre-commit.sh` | 使用 APT/YUM 与 pip 安装 vllm-ascend lint 依赖，预热并启用 Git hooks | 无参数；`-h` 查看帮助 |
-| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 默认使用工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 清理 Ascend 构建缓存；`-t <dir>` 覆盖构建临时目录 |
+| `install-vllm-source.sh` | 卸载并从源码安装 vllm / vllm-ascend | 优先使用节点本地 `/var/tmp/`，回退工作区 `tmp/`；`-s` 跳过卸载；`-v` 仅 vllm；`-a` 仅 vllm-ascend；`-c` 显式清理缓存；`-t <dir>` 临时目录；`-j <数>` 并发 |
+| `remote-task.py` | 统一远端预检、按需安装、运行与状态查询 | 显式节点、完整容器 ID、宿主机工作区及配置；`inspect/prepare/run/status/weight` |
 | `process-trace.sh` | 根据宿主机进程 PID 查询运行目录、容器运行时、容器 ID、名称和状态 | 直接传 `<pid>`（推荐），或使用 `-p | --pid <pid>` |
 | `profile-analyse.sh` | 分析 vLLM profile，并将本次 profile 压缩归档到独立目录 | `-p <dir>` profile 根目录；`-g <pattern>` 匹配模式；`-n <name>` 归档名称 |
 | `preview-vllm-ascend-docs.sh` | 构建 vllm-ascend 文档并预览 | `-t` AI 翻译；`-s` 仅构建不启动服务；`PORT=9000` 自定义端口 |
-| `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--` 透传额外参数 |
+| `run-benchmark.sh` | 运行 ais_bench 精度或性能测试 | `-m <name>`、`-d <name>` 可重复；`--mode all/perf`；`-w <dir>` 输出根目录；`--debug` 显式调试；`--max-runtime-seconds` 可选总时限；`--` 透传额外参数 |
 | `server.sh` | 本机 vLLM 单体服务启动脚本（由模板生成，不入仓库） | 首次生成后按机器修改配置 |
 | `p_server.sh` | 本机 vLLM Prefill 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |
 | `d_server.sh` | 本机 vLLM Decode 启动脚本（由模板生成，不入仓库） | 配置本机网络并直接修改 `vllm_cmd` |

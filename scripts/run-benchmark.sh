@@ -28,6 +28,7 @@ NUM_WARMUPS="1"
 MODE="all"
 SUMMARIZER=""
 WORK_DIR="benchmark-outputs"
+MAX_RUNTIME_SECONDS=""
 DEBUG=false
 AIS_BENCH_ARGS=()
 CONDA_ENV="ais_bench"
@@ -46,6 +47,7 @@ print_help() {
     echo "  -s, --summarizer <name>  结果汇总配置（默认: 由 ais_bench 按模式选择）"
     echo "  -w, --work-dir <path>    输出根目录（默认: benchmark-outputs）"
     echo "      --debug              开启 ais_bench debug（默认: 关闭）"
+    echo "      --max-runtime-seconds <秒>  可选总时限；超时保留逐题产物，结果标记不完整"
     echo "      -- <args...>         其余参数原样传给 ais_bench"
     echo "  -h, --help               显示此帮助信息"
     echo ""
@@ -180,6 +182,11 @@ while [[ $# -gt 0 ]]; do
             WORK_DIR="$2"; shift 2 ;;
         --debug)
             DEBUG=true; shift ;;
+        --max-runtime-seconds)
+            ws_require_value "$1" "${2:-}"
+            MAX_RUNTIME_SECONDS="$2"; shift 2 ;;
+        --max-runtime-seconds=*)
+            MAX_RUNTIME_SECONDS="${1#*=}"; shift ;;
         --)
             shift
             AIS_BENCH_ARGS=("$@")
@@ -190,6 +197,11 @@ while [[ $# -gt 0 ]]; do
             ws_log_error "未知参数: $1，使用 -h 查看帮助"; exit 1 ;;
     esac
 done
+
+if [[ -n "$MAX_RUNTIME_SECONDS" ]] && { [[ ! "$MAX_RUNTIME_SECONDS" =~ ^[1-9][0-9]*$ ]] || (( 10#$MAX_RUNTIME_SECONDS > 604800 )); }; then
+    ws_log_error "--max-runtime-seconds 必须是 1 到 604800 的整数"
+    exit 1
+fi
 
 # ---- 默认模型和数据集 ----
 if [[ ${#MODEL_CONFIGS[@]} -eq 0 ]]; then
@@ -225,6 +237,7 @@ echo "  运行模式: ${MODE}"
 echo "  汇总配置: ${SUMMARIZER:-ais_bench 默认}"
 echo "  Debug:     ${DEBUG}"
 echo "  输出目录: ${BENCH_OUTPUT_DIR}"
+echo "  总时限: ${MAX_RUNTIME_SECONDS:-无限制}"
 if [[ ${#AIS_BENCH_ARGS[@]} -gt 0 ]]; then
     echo "  附加参数: 已提供 ${#AIS_BENCH_ARGS[@]} 个（不展开）"
 fi
@@ -266,9 +279,20 @@ BENCH_CMD=(
 
 unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
 ws_log_step "开始运行 AISBench"
-if "${BENCH_CMD[@]}"; then
+BENCH_EXIT=0
+if [[ -n "$MAX_RUNTIME_SECONDS" ]]; then
+    timeout --signal=INT --kill-after=30s "${MAX_RUNTIME_SECONDS}s" "${BENCH_CMD[@]}" || BENCH_EXIT=$?
+else
+    "${BENCH_CMD[@]}" || BENCH_EXIT=$?
+fi
+if [[ "$BENCH_EXIT" -eq 124 || "$BENCH_EXIT" -eq 137 ]]; then
+    printf 'incomplete: benchmark exceeded %s seconds; do not report formal accuracy\n' "$MAX_RUNTIME_SECONDS" > "$BENCH_OUTPUT_DIR/INCOMPLETE.$(date -u +%Y%m%dT%H%M%SZ).txt"
+    ws_log_error "总时限已触发；逐题产物保留于 $BENCH_OUTPUT_DIR，结果不完整，不能作为正式精度结论"
+    exit "$BENCH_EXIT"
+fi
+if [[ "$BENCH_EXIT" -eq 0 ]]; then
     ws_log_ok "AISBench 测试完成"
 else
-    ws_log_error "AISBench 测试失败"
-    exit 1
+    ws_log_error "AISBench 测试失败（退出码 $BENCH_EXIT）"
+    exit "$BENCH_EXIT"
 fi

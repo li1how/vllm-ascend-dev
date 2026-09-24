@@ -29,6 +29,7 @@ CLEAN_BUILD_CACHE=false
 VLLM_BUILD_REQUIREMENTS=(setuptools-rust)
 BUILD_TMP_DIR="$SCRIPT_DIR/tmp"
 BUILD_TMP_DIR_EXPLICIT=false
+BUILD_JOBS="${MAX_JOBS:-}"
 BUILD_TMP_SOURCE="工作区默认"
 BUILD_TMP_ENV=()
 MIN_BUILD_TMP_KB=$((512 * 1024))
@@ -79,6 +80,14 @@ build_tmp_dir_is_usable() {
 
 select_build_tmp_dir() {
     local resolved_candidate
+    local local_candidate="/var/tmp/vllm-ascend-build-$(id -u)"
+
+    if ! $BUILD_TMP_DIR_EXPLICIT && build_tmp_dir_is_usable "$local_candidate"; then
+        BUILD_TMP_DIR="$local_candidate"
+        BUILD_TMP_SOURCE="节点本地"
+        BUILD_TMP_ENV=("TMPDIR=$BUILD_TMP_DIR")
+        return 0
+    fi
 
     resolved_candidate="$(ws_resolve_path "$BUILD_TMP_DIR")"
     if $BUILD_TMP_DIR_EXPLICIT; then
@@ -261,6 +270,55 @@ clean_ascend_build_cache() {
     fi
 }
 
+check_source_resolution() {
+    # A neutral directory prevents the workspace checkout name from shadowing editable finders.
+    ( cd "$BUILD_TMP_DIR" && timeout 30 "$PYTHON_BIN" - "$1" "$2" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+name, root = sys.argv[1:]
+expected = pathlib.Path(root).resolve()
+spec = importlib.util.find_spec(name)
+if spec is not None and spec.origin is None and name == "vllm":
+    locations = [pathlib.Path(p).resolve() for p in spec.submodule_search_locations or []]
+    if expected in locations:
+        print("[WARN] vllm 被工作区同名 namespace 目录遮蔽", file=sys.stderr)
+        sys.exit(42)
+if spec is None or not spec.origin or not pathlib.Path(spec.origin).resolve().is_relative_to(expected):
+    print(f"[ERROR] {name} 包路径不是当前源码: {getattr(spec, 'origin', None)}", file=sys.stderr)
+    sys.exit(1)
+print(f"[OK] {name} 包路径: {spec.origin}")
+PY
+    )
+}
+
+check_vllm_resolution() {
+    check_source_resolution vllm "$SCRIPT_DIR/vllm" || return $?
+    # Detect only the workspace-root namespace shadow; unrelated import failures
+    # must not be mislabeled or trigger another installation.
+    if ( cd "$SCRIPT_DIR" && timeout 30 "$PYTHON_BIN" -c '
+import importlib.util, pathlib, sys
+spec = importlib.util.find_spec("vllm")
+root = pathlib.Path(sys.argv[1]).resolve()
+locations = [pathlib.Path(p).resolve() for p in spec.submodule_search_locations or []] if spec else []
+sys.exit(42 if spec and spec.origin is None and root in locations else 0)
+' "$SCRIPT_DIR/vllm" ); then
+        :
+    else
+        ws_log_warn "工作区根目录的同名目录遮蔽 vllm；服务和测试请从输出目录启动，不因此重装"
+    fi
+}
+
+record_dependency_check() {
+    local destination="$1"
+    if "$PYTHON_BIN" -m pip check > "$destination" 2>&1; then
+        ws_log_ok "依赖检查通过: $destination"
+    else
+        ws_log_warn "依赖检查未通过，需核对冲突或检查错误: $destination"
+    fi
+}
+
 # ---- 参数解析 ----
 print_help() {
     echo "用法: $0 [选项]"
@@ -274,6 +332,7 @@ print_help() {
     echo "  -c, --clean-build-cache"
     echo "                        安装前清理 vllm-ascend 自定义算子构建缓存"
     echo "  -t, --tmp-dir <目录>  指定构建临时目录（至少需要 512 MiB）"
+    echo "  -j, --jobs <数量>    vllm-ascend 原生构建并发数（默认采用环境 MAX_JOBS 或上游默认）"
     echo "  -h, --help            显示此帮助信息"
     echo ""
     echo "示例:"
@@ -284,7 +343,10 @@ print_help() {
     echo "  $0 -a -s -c           # 清理构建缓存后重新安装 vllm-ascend"
     echo "  $0 -a -t /path/tmp    # 使用指定临时目录安装 vllm-ascend"
     echo ""
-    echo "默认构建临时目录: $SCRIPT_DIR/tmp"
+    echo "默认构建临时目录: 节点本地 /var/tmp/vllm-ascend-build-UID；不可用时 $SCRIPT_DIR/tmp"
+    echo "安装前后 pip check 日志: $SCRIPT_DIR/log/install-source.*/"
+    echo "从中性目录检查包路径；工作区根目录遮蔽时仅警告，不重新安装。"
+    echo "安装成功不代表依赖全部兼容，仍需运行环境诊断。"
     echo ""
     echo "以下情况建议使用 --clean-build-cache:"
     echo "  - 切换了 CANN 版本或 CANN 安装路径不同的镜像"
@@ -335,6 +397,15 @@ while [[ $# -gt 0 ]]; do
             BUILD_TMP_DIR_EXPLICIT=true
             shift
             ;;
+        -j|--jobs)
+            ws_require_value "$1" "${2:-}"
+            BUILD_JOBS="$2"
+            shift 2
+            ;;
+        --jobs=*)
+            BUILD_JOBS="${1#*=}"
+            shift
+            ;;
         -h|--help)
             print_help
             ;;
@@ -345,6 +416,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -n "$BUILD_JOBS" ]] && { [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || (( 10#$BUILD_JOBS > 256 )); }; then
+    ws_log_error "--jobs 必须是 1 到 256 的整数"
+    exit 1
+fi
 INSTALL_VLLM=false
 INSTALL_ASCEND=false
 case "$INSTALL_MODE" in
@@ -382,10 +457,16 @@ fi
 select_build_tmp_dir
 
 ws_select_python_env "$CONDA_ENV"
+ws_use_system_ca
+ws_require_commands timeout
 if ! "$PYTHON_BIN" -m pip --version &>/dev/null; then
     ws_log_error "当前 Python 无法运行 pip: $PYTHON_BIN -m pip"
     exit 1
 fi
+
+mkdir -p "$SCRIPT_DIR/log"
+DEPENDENCY_LOG_DIR="$(mktemp -d "$SCRIPT_DIR/log/install-source.XXXXXX")"
+record_dependency_check "$DEPENDENCY_LOG_DIR/pip-check-before.log"
 
 if $INSTALL_ASCEND; then
     if $CLEAN_BUILD_CACHE; then
@@ -413,6 +494,7 @@ echo "  卸载:   $([[ "$SKIP_UNINSTALL" == true ]] && echo "跳过" || echo "�
 echo "  临时目录: $BUILD_TMP_DIR（$BUILD_TMP_SOURCE，$(($(df -Pk "$BUILD_TMP_DIR" | awk 'NR == 2 { print $4 }') / 1024)) MiB 可用）"
 if $INSTALL_ASCEND; then
     echo "  Ascend 构建缓存: $ASCEND_BUILD_CACHE_SUMMARY"
+    echo "  原生构建并发: ${BUILD_JOBS:-上游默认}"
 fi
 if $INSTALL_VLLM; then
     echo "  vllm 构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
@@ -454,6 +536,7 @@ if $INSTALL_VLLM; then
         env "${BUILD_TMP_ENV[@]}" VLLM_TARGET_DEVICE=empty \
             "$PYTHON_BIN" -m pip install -e . --no-build-isolation
     )
+    check_vllm_resolution
     ws_log_ok "vllm 源码安装完成"
 fi
 
@@ -462,11 +545,14 @@ if $INSTALL_ASCEND; then
     ws_log_step "从源码安装 vllm-ascend..."
     (
         cd "$SCRIPT_DIR/vllm-ascend"
-        env "${BUILD_TMP_ENV[@]}" COMPILE_CUSTOM_KERNELS=1 \
+        env "${BUILD_TMP_ENV[@]}" ${BUILD_JOBS:+MAX_JOBS=$BUILD_JOBS} COMPILE_CUSTOM_KERNELS=1 \
             "$PYTHON_BIN" -m pip install -e . --no-build-isolation
     )
+    check_source_resolution vllm_ascend "$SCRIPT_DIR/vllm-ascend"
     ws_log_ok "vllm-ascend 源码安装完成"
 fi
 
+record_dependency_check "$DEPENDENCY_LOG_DIR/pip-check-after.log"
 echo ""
-ws_log_ok "源码安装流程完成"
+ws_log_ok "源码安装与包路径检查完成；依赖检查结果见 $DEPENDENCY_LOG_DIR"
+ws_log_info "请使用同一 Python 运行环境诊断，确认真实导入和 LLM/CLI 可用性"

@@ -113,6 +113,10 @@ configure_pip_index() {
     fi
 
     pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
+    ws_use_system_ca
+    if [[ -n "${PIP_CERT:-}" ]]; then
+        pip config set global.cert "$PIP_CERT"
+    fi
     ws_log_ok "pip index-url 已配置"
 }
 
