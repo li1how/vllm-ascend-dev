@@ -47,6 +47,20 @@ ws_command_exists() {
     command -v "$1" &>/dev/null
 }
 
+ws_use_system_ca() {
+    local candidate
+    for candidate in "${WS_SYSTEM_CA_FILE:-}" /etc/ssl/certs/ca-certificates.crt /etc/pki/tls/certs/ca-bundle.crt; do
+        [[ -n "$candidate" && -r "$candidate" ]] || continue
+        WS_SYSTEM_CA_FILE="$candidate"
+        export SSL_CERT_FILE="${SSL_CERT_FILE:-$candidate}"
+        export REQUESTS_CA_BUNDLE="${REQUESTS_CA_BUNDLE:-$candidate}"
+        export PIP_CERT="${PIP_CERT:-$candidate}"
+        return 0
+    done
+    ws_log_warn "未找到系统 CA bundle，保留当前证书配置"
+    return 0
+}
+
 ws_select_package_manager() {
     local os_release_file="${WS_OS_RELEASE_FILE:-/etc/os-release}"
     local ID=""

@@ -10,8 +10,9 @@
 #   ./scripts/install-vllm-source.sh -s | --skip-uninstall    # 跳过卸载，仅安装源码
 #   ./scripts/install-vllm-source.sh -v | --vllm-only         # 仅安装 vllm
 #   ./scripts/install-vllm-source.sh -a | --ascend-only       # 仅安装 vllm-ascend
-#   ./scripts/install-vllm-source.sh -c | --clean-build-cache # 安装前清理 vllm-ascend 构建缓存
+#   ./scripts/install-vllm-source.sh -c | --clean-build-cache # 显式清理构建现场，保留持久化增量缓存
 #   ./scripts/install-vllm-source.sh -t /path/to/tmp           # 指定构建临时目录
+#   ./scripts/install-vllm-source.sh --build-cache-dir /path/cache # 指定持久化增量缓存
 #   ./scripts/install-vllm-source.sh -h | --help              # 查看帮助
 # ============================================================
 
@@ -29,9 +30,16 @@ CLEAN_BUILD_CACHE=false
 VLLM_BUILD_REQUIREMENTS=(setuptools-rust)
 BUILD_TMP_DIR="$SCRIPT_DIR/tmp"
 BUILD_TMP_DIR_EXPLICIT=false
+BUILD_JOBS="${MAX_JOBS:-}"
+BUILD_CACHE_DIR="${VLLM_ASCEND_BUILD_CACHE_DIR:-$SCRIPT_DIR/.cache/vllm-ascend/csrc-build-cache}"
 BUILD_TMP_SOURCE="工作区默认"
 BUILD_TMP_ENV=()
 MIN_BUILD_TMP_KB=$((512 * 1024))
+INSTALL_STARTED=$SECONDS
+VLLM_PHASE_STARTED=""
+ASCEND_PHASE_STARTED=""
+VLLM_ELAPSED=0
+ASCEND_ELAPSED=0
 ASCEND_BUILD_DIR="$SCRIPT_DIR/vllm-ascend/csrc/build"
 ASCEND_BUILD_CACHE_SUMMARY="保留"
 CANN_CACHE_KEYS=(
@@ -79,6 +87,14 @@ build_tmp_dir_is_usable() {
 
 select_build_tmp_dir() {
     local resolved_candidate
+    local local_candidate="/var/tmp/vllm-ascend-build-$(id -u)"
+
+    if ! $BUILD_TMP_DIR_EXPLICIT && build_tmp_dir_is_usable "$local_candidate"; then
+        BUILD_TMP_DIR="$local_candidate"
+        BUILD_TMP_SOURCE="节点本地"
+        BUILD_TMP_ENV=("TMPDIR=$BUILD_TMP_DIR")
+        return 0
+    fi
 
     resolved_candidate="$(ws_resolve_path "$BUILD_TMP_DIR")"
     if $BUILD_TMP_DIR_EXPLICIT; then
@@ -261,7 +277,106 @@ clean_ascend_build_cache() {
     fi
 }
 
+check_source_resolution() {
+    # A neutral directory prevents the workspace checkout name from shadowing editable finders.
+    ( cd "$BUILD_TMP_DIR" && timeout 30 "$PYTHON_BIN" - "$1" "$2" <<'PY'
+import importlib.util
+import pathlib
+import sys
+
+name, root = sys.argv[1:]
+expected = pathlib.Path(root).resolve()
+spec = importlib.util.find_spec(name)
+if spec is not None and spec.origin is None and name == "vllm":
+    locations = [pathlib.Path(p).resolve() for p in spec.submodule_search_locations or []]
+    if expected in locations:
+        print("[WARN] vllm 被工作区同名 namespace 目录遮蔽", file=sys.stderr)
+        sys.exit(42)
+if spec is None or not spec.origin or not pathlib.Path(spec.origin).resolve().is_relative_to(expected):
+    print(f"[ERROR] {name} 包路径不是当前源码: {getattr(spec, 'origin', None)}", file=sys.stderr)
+    sys.exit(1)
+print(f"[OK] {name} 包路径: {spec.origin}")
+PY
+    )
+}
+
+check_vllm_resolution() {
+    check_source_resolution vllm "$SCRIPT_DIR/vllm" || return $?
+    # Detect only the workspace-root namespace shadow; unrelated import failures
+    # must not be mislabeled or trigger another installation.
+    if ( cd "$SCRIPT_DIR" && timeout 30 "$PYTHON_BIN" -c '
+import importlib.util, pathlib, sys
+spec = importlib.util.find_spec("vllm")
+root = pathlib.Path(sys.argv[1]).resolve()
+locations = [pathlib.Path(p).resolve() for p in spec.submodule_search_locations or []] if spec else []
+sys.exit(42 if spec and spec.origin is None and root in locations else 0)
+' "$SCRIPT_DIR/vllm" ); then
+        :
+    else
+        ws_log_warn "工作区根目录的同名目录遮蔽 vllm；服务和测试请从输出目录启动，不因此重装"
+    fi
+}
+
+record_dependency_check() {
+    local destination="$1"
+    if "$PYTHON_BIN" -m pip check > "$destination" 2>&1; then
+        ws_log_ok "依赖检查通过: $destination"
+    else
+        ws_log_warn "依赖检查未通过，需核对冲突或检查错误: $destination"
+    fi
+}
+
 # ---- 参数解析 ----
+record_install_summary() {
+    local install_exit=$?
+    local total_elapsed=$((SECONDS - INSTALL_STARTED))
+    [[ -z "$VLLM_PHASE_STARTED" ]] || VLLM_ELAPSED=$((SECONDS - VLLM_PHASE_STARTED))
+    [[ -z "$ASCEND_PHASE_STARTED" ]] || ASCEND_ELAPSED=$((SECONDS - ASCEND_PHASE_STARTED))
+    "$PYTHON_BIN" - "$DEPENDENCY_LOG_DIR" "$BUILD_CACHE_DIR" "$BUILD_JOBS" \
+        "$install_exit" "$total_elapsed" "$VLLM_ELAPSED" "$ASCEND_ELAPSED" \
+        "$SCRIPT_DIR" "$INSTALL_ASCEND" <<'PY' || true
+import importlib.util
+import json
+import os
+import sys
+from argparse import Namespace
+from pathlib import Path
+
+directory = Path(sys.argv[1])
+counts = {name: 0 for name in ('HIT', 'MISS', 'BYPASS')}
+events = directory / 'build-cache.events.jsonl'
+if events.is_file():
+    for line in events.read_text().splitlines():
+        try:
+            event = json.loads(line)
+            if event.get('event') == 'cache_result' and event.get('status') in counts:
+                counts[event['status']] += 1
+        except (ValueError, AttributeError):
+            continue
+report = {'cacheDir': sys.argv[2], 'jobs': int(sys.argv[3]) if sys.argv[3] else None,
+          'exitCode': int(sys.argv[4]), 'elapsedSeconds': int(sys.argv[5]),
+          'vllmSeconds': int(sys.argv[6]), 'ascendSeconds': int(sys.argv[7]),
+          'cacheResults': counts, 'eventLog': str(events),
+          'cacheTelemetryAvailable': events.is_file()}
+destination = directory / 'summary.json'
+if report['exitCode'] == 0 and sys.argv[9] == 'true':
+    try:
+        workspace = Path(sys.argv[8])
+        spec = importlib.util.spec_from_file_location('cache_transfer', workspace / '.agents/skills/remote-init/scripts/cache-transfer.py')
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        args = Namespace(host='', image_id=os.environ.get('VLLM_BUILD_IMAGE_ID', ''), soc=os.environ.get('SOC_VERSION', ''))
+        origin = helper.provenance(workspace, Path(sys.argv[2]), args)
+        helper.write_json(workspace / 'log/last-native-build.json', origin)
+    except Exception as exc:
+        report['buildOriginError'] = str(exc)
+        print('[WARN] 无法记录构建现场来源: ' + str(exc), file=sys.stderr)
+destination.write_text(json.dumps(report, ensure_ascii=False, indent=2) + '\n')
+print('[INFO] 安装统计: ' + str(destination) + ' ' + json.dumps(report, ensure_ascii=False))
+PY
+    return "$install_exit"
+}
+
 print_help() {
     echo "用法: $0 [选项]"
     echo ""
@@ -272,8 +387,10 @@ print_help() {
     echo "  -v, --vllm-only       仅处理 vllm"
     echo "  -a, --ascend-only     仅处理 vllm-ascend"
     echo "  -c, --clean-build-cache"
-    echo "                        安装前清理 vllm-ascend 自定义算子构建缓存"
+    echo "                        显式清理构建现场，保留持久化增量缓存"
     echo "  -t, --tmp-dir <目录>  指定构建临时目录（至少需要 512 MiB）"
+    echo "  -j, --jobs <数量>    vllm-ascend 原生构建并发数（默认采用环境 MAX_JOBS 或上游默认）"
+    echo "  --build-cache-dir <目录>  持久化增量缓存（可用 VLLM_ASCEND_BUILD_CACHE_DIR 指定）"
     echo "  -h, --help            显示此帮助信息"
     echo ""
     echo "示例:"
@@ -284,7 +401,12 @@ print_help() {
     echo "  $0 -a -s -c           # 清理构建缓存后重新安装 vllm-ascend"
     echo "  $0 -a -t /path/tmp    # 使用指定临时目录安装 vllm-ascend"
     echo ""
-    echo "默认构建临时目录: $SCRIPT_DIR/tmp"
+    echo "默认构建临时目录: 节点本地 /var/tmp/vllm-ascend-build-UID；不可用时 $SCRIPT_DIR/tmp"
+    echo "安装前后 pip check 日志: $SCRIPT_DIR/log/install-source.*/"
+    echo "默认持久化增量缓存: $SCRIPT_DIR/.cache/vllm-ascend/csrc-build-cache"
+    echo "安装耗时、退出码和 HIT/MISS/BYPASS: 同一日志目录下 summary.json"
+    echo "从中性目录检查包路径；工作区根目录遮蔽时仅警告，不重新安装。"
+    echo "安装成功不代表依赖全部兼容，仍需运行环境诊断。"
     echo ""
     echo "以下情况建议使用 --clean-build-cache:"
     echo "  - 切换了 CANN 版本或 CANN 安装路径不同的镜像"
@@ -335,6 +457,28 @@ while [[ $# -gt 0 ]]; do
             BUILD_TMP_DIR_EXPLICIT=true
             shift
             ;;
+        -j|--jobs)
+            ws_require_value "$1" "${2:-}"
+            BUILD_JOBS="$2"
+            shift 2
+            ;;
+        --jobs=*)
+            BUILD_JOBS="${1#*=}"
+            shift
+            ;;
+        --build-cache-dir)
+            ws_require_value "$1" "${2:-}"
+            BUILD_CACHE_DIR="$2"
+            shift 2
+            ;;
+        --build-cache-dir=*)
+            BUILD_CACHE_DIR="${1#*=}"
+            if [[ -z "$BUILD_CACHE_DIR" ]]; then
+                ws_log_error "--build-cache-dir 需要参数值"
+                exit 1
+            fi
+            shift
+            ;;
         -h|--help)
             print_help
             ;;
@@ -345,6 +489,10 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -n "$BUILD_JOBS" ]] && { [[ ! "$BUILD_JOBS" =~ ^[1-9][0-9]*$ ]] || (( 10#$BUILD_JOBS > 256 )); }; then
+    ws_log_error "--jobs 必须是 1 到 256 的整数"
+    exit 1
+fi
 INSTALL_VLLM=false
 INSTALL_ASCEND=false
 case "$INSTALL_MODE" in
@@ -382,10 +530,23 @@ fi
 select_build_tmp_dir
 
 ws_select_python_env "$CONDA_ENV"
+ws_use_system_ca
+ws_require_commands timeout tee
 if ! "$PYTHON_BIN" -m pip --version &>/dev/null; then
     ws_log_error "当前 Python 无法运行 pip: $PYTHON_BIN -m pip"
     exit 1
 fi
+
+mkdir -p "$SCRIPT_DIR/log"
+DEPENDENCY_LOG_DIR="$(mktemp -d "$SCRIPT_DIR/log/install-source.XXXXXX")"
+BUILD_CACHE_DIR="$(ws_resolve_path "$BUILD_CACHE_DIR")"
+if $INSTALL_ASCEND; then
+    mkdir -p -- "$BUILD_CACHE_DIR"
+    export VLLM_ASCEND_BUILD_CACHE_DIR="$BUILD_CACHE_DIR"
+    export VLLM_ASCEND_BUILD_CACHE_EVENT_LOG="$DEPENDENCY_LOG_DIR/build-cache.events.jsonl"
+fi
+trap record_install_summary EXIT
+record_dependency_check "$DEPENDENCY_LOG_DIR/pip-check-before.log"
 
 if $INSTALL_ASCEND; then
     if $CLEAN_BUILD_CACHE; then
@@ -413,6 +574,8 @@ echo "  卸载:   $([[ "$SKIP_UNINSTALL" == true ]] && echo "跳过" || echo "�
 echo "  临时目录: $BUILD_TMP_DIR（$BUILD_TMP_SOURCE，$(($(df -Pk "$BUILD_TMP_DIR" | awk 'NR == 2 { print $4 }') / 1024)) MiB 可用）"
 if $INSTALL_ASCEND; then
     echo "  Ascend 构建缓存: $ASCEND_BUILD_CACHE_SUMMARY"
+    echo "  持久化增量缓存: $BUILD_CACHE_DIR"
+    echo "  原生构建并发: ${BUILD_JOBS:-上游默认}"
 fi
 if $INSTALL_VLLM; then
     echo "  vllm 构建依赖: ${VLLM_BUILD_REQUIREMENTS[*]}"
@@ -449,24 +612,34 @@ if $INSTALL_VLLM; then
 
     echo ""
     ws_log_step "从源码安装 vllm..."
+    VLLM_PHASE_STARTED=$SECONDS
     (
         cd "$SCRIPT_DIR/vllm"
         env "${BUILD_TMP_ENV[@]}" VLLM_TARGET_DEVICE=empty \
             "$PYTHON_BIN" -m pip install -e . --no-build-isolation
     )
+    VLLM_ELAPSED=$((SECONDS - VLLM_PHASE_STARTED))
+    VLLM_PHASE_STARTED=""
+    check_vllm_resolution
     ws_log_ok "vllm 源码安装完成"
 fi
 
 if $INSTALL_ASCEND; then
     echo ""
     ws_log_step "从源码安装 vllm-ascend..."
+    ASCEND_PHASE_STARTED=$SECONDS
     (
         cd "$SCRIPT_DIR/vllm-ascend"
-        env "${BUILD_TMP_ENV[@]}" COMPILE_CUSTOM_KERNELS=1 \
+        env "${BUILD_TMP_ENV[@]}" ${BUILD_JOBS:+MAX_JOBS=$BUILD_JOBS} COMPILE_CUSTOM_KERNELS=1 \
             "$PYTHON_BIN" -m pip install -e . --no-build-isolation
-    )
+    ) 2>&1 | tee "$DEPENDENCY_LOG_DIR/ascend-build.log"
+    ASCEND_ELAPSED=$((SECONDS - ASCEND_PHASE_STARTED))
+    ASCEND_PHASE_STARTED=""
+    check_source_resolution vllm_ascend "$SCRIPT_DIR/vllm-ascend"
     ws_log_ok "vllm-ascend 源码安装完成"
 fi
 
+record_dependency_check "$DEPENDENCY_LOG_DIR/pip-check-after.log"
 echo ""
-ws_log_ok "源码安装流程完成"
+ws_log_ok "源码安装与包路径检查完成；依赖检查结果见 $DEPENDENCY_LOG_DIR"
+ws_log_info "请使用同一 Python 运行环境诊断，确认真实导入和 LLM/CLI 可用性"

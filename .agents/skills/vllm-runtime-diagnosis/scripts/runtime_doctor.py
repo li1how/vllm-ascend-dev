@@ -11,6 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 from typing import Any, Sequence
+from urllib.parse import unquote, urlparse
 
 MODULE_DISTRIBUTIONS = {
     "vllm": "vllm",
@@ -135,6 +136,9 @@ try:
             )
     except importlib.metadata.PackageNotFoundError:
         pass
+    if should_import == "1" and module_name == "vllm":
+        from vllm import LLM
+        result["llm_import"] = True
 except BaseException as exc:
     result["import_error"] = f"{type(exc).__name__}: {exc}"
 print(json.dumps(result))
@@ -188,10 +192,18 @@ def path_is_within(path_value: str | None, expected: Path) -> bool:
 
 
 def module_source_path(module: dict[str, Any]) -> str | None:
-    direct_url = module.get("direct_url")
-    if isinstance(direct_url, str) and direct_url.startswith("file://"):
-        direct_url = direct_url.removeprefix("file://")
-    return module.get("module_path") or module.get("spec_origin") or direct_url
+    # Installation metadata cannot prove where Python actually imported a package.
+    return module.get("module_path") or module.get("spec_origin")
+
+
+def editable_source_path(module: dict[str, Any]) -> str | None:
+    value = module.get("direct_url")
+    if not isinstance(value, str):
+        return None
+    parsed = urlparse(value)
+    if parsed.scheme != "file" or parsed.netloc not in ("", "localhost"):
+        return None
+    return unquote(parsed.path)
 
 
 NPU_PROBE = r"""
@@ -442,6 +454,15 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
                 f"{name}-source",
                 f"{name} resolves to {actual}, expected source under {expected}",
             )
+        if module.get("editable"):
+            source = editable_source_path(module)
+            if source is None or Path(source).resolve() != expected.resolve():
+                add_issue(
+                    issues,
+                    "error",
+                    f"{name}-editable",
+                    f"{name} editable source is {source}, expected {expected}",
+                )
     for name in ("torch", "torch_npu"):
         module = modules[name]
         if not module.get("available"):
@@ -467,6 +488,22 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
 
     npu = npu_info(npu_mode, timeout_sec)
     add_npu_issues(issues, npu, npu_mode)
+    dependencies = run_command(
+        (sys.executable, "-m", "pip", "check"), timeout_sec=timeout_sec
+    )
+    if not dependencies["ok"]:
+        add_issue(
+            issues,
+            "warning",
+            "pip-check",
+            "Dependency check did not pass: "
+            + str(
+                dependencies.get("error")
+                or dependencies.get("stdout")
+                or dependencies.get("stderr")
+                or "unknown error"
+            ),
+        )
 
     return {
         "workspace": str(workspace),
@@ -478,6 +515,7 @@ def diagnose(workspace: Path, npu_mode: str, timeout_sec: float) -> dict[str, An
         "modules": modules,
         "tools": tools,
         "npu": npu,
+        "dependencies": dependencies,
         "issues": issues,
         "summary": {
             "errors": sum(issue["severity"] == "error" for issue in issues),
@@ -503,6 +541,8 @@ def print_human(report: dict[str, Any]) -> None:
             f"path={module_source_path(info) or '-'} "
             f"editable={info.get('editable', False)}"
         )
+        if info.get("editable"):
+            print(f"    editable source: {editable_source_path(info) or '-'}")
     print("tools:")
     for name, path in report["tools"].items():
         print(f"  {name}: {path or 'missing'}")

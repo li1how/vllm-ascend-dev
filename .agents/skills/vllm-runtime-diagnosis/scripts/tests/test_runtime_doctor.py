@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -68,17 +69,138 @@ class RuntimeDoctorTests(unittest.TestCase):
                     "available": True,
                     "module_path": str(path),
                     "editable": name in ("vllm", "vllm_ascend"),
+                    "direct_url": (
+                        workspace / ("vllm-ascend" if name == "vllm_ascend" else name)
+                    ).as_uri(),
                 }
 
             with (
-                mock.patch.object(runtime_doctor, "module_info", side_effect=fake_module),
+                mock.patch.object(
+                    runtime_doctor, "module_info", side_effect=fake_module
+                ),
                 mock.patch.object(runtime_doctor.shutil, "which", return_value=None),
+                mock.patch.object(
+                    runtime_doctor, "run_command", return_value={"ok": True}
+                ),
             ):
                 report = runtime_doctor.diagnose(workspace, "skip", 1)
             codes = {issue["code"] for issue in report["issues"]}
             self.assertIn("vllm-source", codes)
             self.assertIn("tool-vllm", codes)
             self.assertNotIn("vllm_ascend-source", codes)
+
+    def test_namespace_metadata_cannot_replace_real_source(self) -> None:
+        module = {
+            "available": True,
+            "module_path": None,
+            "spec_origin": None,
+            "editable": True,
+            "direct_url": "file:///workspace/vllm",
+        }
+        self.assertIsNone(runtime_doctor.module_source_path(module))
+        with (
+            mock.patch.object(
+                runtime_doctor, "git_info", return_value={"is_git": True}
+            ),
+            mock.patch.object(runtime_doctor, "module_info", return_value=module),
+            mock.patch.object(runtime_doctor, "run_command", return_value={"ok": True}),
+        ):
+            report = runtime_doctor.diagnose(Path("/workspace"), "skip", 1)
+        self.assertIn("vllm-source", {i["code"] for i in report["issues"]})
+
+    def test_editable_metadata_checked_separately(self) -> None:
+        module = {
+            "available": True,
+            "module_path": "/workspace/vllm/vllm/__init__.py",
+            "editable": True,
+            "direct_url": "file:///old/vllm",
+        }
+        with (
+            mock.patch.object(
+                runtime_doctor, "git_info", return_value={"is_git": True}
+            ),
+            mock.patch.object(runtime_doctor, "module_info", return_value=module),
+            mock.patch.object(runtime_doctor, "run_command", return_value={"ok": True}),
+        ):
+            report = runtime_doctor.diagnose(Path("/workspace"), "skip", 1)
+        codes = {i["code"] for i in report["issues"]}
+        self.assertIn("vllm-editable", codes)
+        self.assertNotIn("vllm-source", codes)
+        self.assertEqual(
+            runtime_doctor.editable_source_path(
+                {"direct_url": "file:///work%20space/vllm"}
+            ),
+            "/work space/vllm",
+        )
+        self.assertIsNone(
+            runtime_doctor.editable_source_path(
+                {"direct_url": "https://example.com/source"}
+            )
+        )
+
+    def test_real_probe_requires_llm_entrypoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            package = Path(directory) / "vllm"
+            package.mkdir()
+            for content, valid in (
+                (None, False),
+                ("", False),
+                ("LLM = object()", True),
+            ):
+                with self.subTest(content=content):
+                    if content is not None:
+                        (package / "__init__.py").write_text(content)
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-S",
+                            "-B",
+                            "-c",
+                            runtime_doctor.MODULE_PROBE,
+                            "vllm",
+                            "vllm",
+                            "1",
+                        ],
+                        cwd=directory,
+                        env={**os.environ, "PYTHONPATH": directory},
+                        text=True,
+                        capture_output=True,
+                        check=True,
+                        timeout=5,
+                    )
+                    info = json.loads(result.stdout)
+                    self.assertEqual(info.get("llm_import", False), valid)
+                    self.assertEqual("import_error" in info, not valid)
+
+    def test_dependency_failure_and_timeout_are_visible(self) -> None:
+        for failure in (
+            {"ok": False, "returncode": 1, "stdout": "package version conflict"},
+            {"ok": False, "error": "command timed out after 1s"},
+        ):
+            with (
+                self.subTest(failure=failure),
+                mock.patch.object(
+                    runtime_doctor, "git_info", return_value={"is_git": True}
+                ),
+                mock.patch.object(
+                    runtime_doctor, "module_info", return_value={"available": False}
+                ),
+                mock.patch.object(runtime_doctor, "run_command", return_value=failure),
+            ):
+                report = runtime_doctor.diagnose(Path("/workspace"), "skip", 1)
+            issue = next(i for i in report["issues"] if i["code"] == "pip-check")
+            self.assertEqual(issue["severity"], "warning")
+            self.assertEqual(report["dependencies"], failure)
+
+    def test_module_probe_timeout(self) -> None:
+        with mock.patch.object(
+            runtime_doctor.subprocess,
+            "run",
+            side_effect=subprocess.TimeoutExpired("python", 1),
+        ):
+            info = runtime_doctor.module_info("vllm", "vllm", timeout_sec=1)
+        self.assertFalse(info["available"])
+        self.assertIn("timed out", info["probe_error"])
 
     def test_json_doctor_output(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -113,8 +235,12 @@ class RuntimeDoctorTests(unittest.TestCase):
             self.assertIn("modules", report)
 
     def test_path_match(self) -> None:
-        self.assertTrue(runtime_doctor.path_is_within("/a/source/pkg/file.py", Path("/a/source")))
-        self.assertFalse(runtime_doctor.path_is_within("/a/other/file.py", Path("/a/source")))
+        self.assertTrue(
+            runtime_doctor.path_is_within("/a/source/pkg/file.py", Path("/a/source"))
+        )
+        self.assertFalse(
+            runtime_doctor.path_is_within("/a/other/file.py", Path("/a/source"))
+        )
 
     def test_npu_device_node_detection(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -130,7 +256,9 @@ class RuntimeDoctorTests(unittest.TestCase):
         devices = {"accelerators": [], "control": []}
         with (
             mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
-            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(
+                runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"
+            ),
             mock.patch.object(runtime_doctor, "run_command") as run_command,
         ):
             info = runtime_doctor.npu_info("auto", 1)
@@ -154,7 +282,9 @@ class RuntimeDoctorTests(unittest.TestCase):
         }
         with (
             mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
-            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(
+                runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"
+            ),
             mock.patch.object(
                 runtime_doctor,
                 "run_command",
@@ -184,7 +314,9 @@ class RuntimeDoctorTests(unittest.TestCase):
         }
         with (
             mock.patch.object(runtime_doctor, "npu_device_nodes", return_value=devices),
-            mock.patch.object(runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"),
+            mock.patch.object(
+                runtime_doctor.shutil, "which", return_value="/usr/bin/npu-smi"
+            ),
             mock.patch.object(
                 runtime_doctor,
                 "run_command",

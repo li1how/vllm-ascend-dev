@@ -25,6 +25,8 @@ description: 诊断实际运行 vLLM-Ascend 的 NPU 环境，支持在当前环�
 - 不输出代理 URL、凭据、token 或完整环境变量。
 - `vllm` 或 `vllm_ascend` 解析到工作区对应仓库之外时记为 error；缺少可选
   运行环境命令时记为 warning。
+- 真实模块路径与 editable 安装来源分别核对；namespace 包或路径缺失不能用
+  安装元数据替代。`from vllm import LLM` 失败或超时记为 error。
 - 可能初始化设备的 import 必须放在带超时的隔离子进程中。
 - 真实 NPU 检查必须在能访问 `/dev/davinci*` 等设备节点的宿主机或已映射
   NPU 的容器中执行。当前环境看不到设备节点时，记为 `not_verifiable`，不把
@@ -49,7 +51,8 @@ python <skill-dir>/scripts/runtime_doctor.py --npu-mode auto
 - branch、HEAD、upstream 和 dirty 状态；
 - 当前 Python，以及 `vllm`、`vllm_ascend`、`torch`、`torch_npu` 的版本、
   import 路径和 editable 安装来源；
-- `vllm` 和 `conda` 命令可用性。
+- `LLM` 入口导入、`vllm` 和 `conda` 命令可用性；
+- 同一 Python 的 `pip check` 结果；冲突或检查未完成记为 warning，保留原因。
 
 `--npu-mode auto` 先检查 NPU 设备节点；设备可见时再运行 `npu-smi`，并在
 子进程中执行 `torch_npu` 设备探测。报告区分 `available`、`unavailable`、
@@ -66,5 +69,7 @@ python <skill-dir>/scripts/runtime_doctor.py --npu-mode auto
 3. `not_verifiable` 表示当前执行环境没有验证能力，不表示宿主机没有 NPU；
    在设备可见环境中使用相同命令复查。
 4. 修正环境后使用相同命令复查。
+   `pip check` 未通过时比较安装前记录，区分原有冲突与本次新增冲突；零 error
+   不代表依赖全部兼容，也不代表模型或 NPU 计算测试通过。
 5. 最终汇报生效模块路径、Python executable、仓库 HEAD 和剩余 error；
    不要粘贴完整环境变量。
