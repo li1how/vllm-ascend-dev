@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR 源码与架构检视"
+  short_description: "整理 PR 提交，解释模块改动，深入源码检视实现与架构并定位问题"
+  default_prompt: "使用 $pr-review 检视这个 PR，整理本地提交，按模块说明修改，并给出分级问题、替代方案和代码链接。"
