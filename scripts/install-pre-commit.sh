@@ -37,6 +37,7 @@ print_help() {
     echo "  有 conda 时必须成功激活 $CONDA_ENV；无 conda 时使用系统 Python。"
     echo "  YUM 环境缺少的 Gitleaks/ShellCheck 从 GitHub 下载到 /usr/local/bin。"
     echo "  发行包支持 Linux x86_64/aarch64。"
+    echo "  预热和 Git hooks 使用同一套 Python/Go 环境。"
     echo "  本脚本不会运行 format.sh 或修改项目源码。"
     exit 0
 }
@@ -109,6 +110,50 @@ sys.exit(0 if marker.exists() else 1)
     "$PYTHON_BIN" -m pip "${pip_args[@]}"
 }
 
+install_hooks() {
+    local lint_python_dir lint_go_dir hook_dir hook hook_tmp
+    lint_python_dir="$(dirname "$(command -v "$PYTHON_BIN")")"
+    lint_go_dir="$(dirname "$(command -v go)")"
+    export CGO_ENABLED="${CGO_ENABLED:-0}"
+    unset GOROOT
+
+    # pre-commit 忽略 home 下的 conda Go；预热时直接复用已安装的工具链。
+    # 环境构建、缓存锁和成功标记仍由 pre-commit 自己处理。
+    "$PYTHON_BIN" - <<'PY'
+import os
+import subprocess
+
+from pre_commit.languages import golang
+from pre_commit.main import main
+
+download_go = golang._install_go
+
+def install_go(version, dest):
+    if version != "default":
+        return download_go(version, dest)
+    go_root = subprocess.check_output(["go", "env", "GOROOT"], text=True).strip()
+    os.makedirs(dest, exist_ok=True)
+    os.symlink(go_root, os.path.join(dest, ".go"))
+
+golang._install_go = install_go
+raise SystemExit(main(["install", "--install-hooks"]))
+PY
+
+    # VS Code 提交同样使用本次预热的环境，不依赖其继承的 PATH。
+    hook_dir="$(git rev-parse --git-common-dir)/hooks"
+    for hook in "$hook_dir/pre-commit" "$hook_dir/prepare-commit-msg"; do
+        [[ -f "$hook" ]] || continue
+        hook_tmp="$(mktemp "$hook.XXXXXX")"
+        {
+            head -n 1 "$hook"
+            printf 'export PATH=%q:%q:"%s"\n' "$lint_python_dir" "$lint_go_dir" "\$PATH"
+            tail -n +2 "$hook"
+        } > "$hook_tmp"
+        chmod --reference="$hook" "$hook_tmp"
+        mv -- "$hook_tmp" "$hook"
+    done
+}
+
 # ---- 环境检查 ----
 if [[ ! -d "$VLLM_ASCEND_DIR" ]]; then
     ws_log_error "vllm-ascend 仓库不存在: $VLLM_ASCEND_DIR"
@@ -147,7 +192,7 @@ cd "$VLLM_ASCEND_DIR"
 install_python_dependencies
 
 ws_log_step "预热并安装 Git hooks..."
-"$PYTHON_BIN" -m pre_commit install --install-hooks
+install_hooks
 
 ws_log_ok "vllm-ascend pre-commit 环境已安装并预热"
 ws_log_info "现在可直接运行: cd $VLLM_ASCEND_DIR && ./format.sh ci"
