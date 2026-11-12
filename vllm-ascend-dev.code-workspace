@@ -15,6 +15,16 @@
 			"${workspaceFolder:vllm}/",
 			"${workspaceFolder:vllm-ascend}/"
 		],
+		"python.analysis.exclude": [
+			"tmp",
+			"log",
+			"benchmark-outputs",
+			"task-cards",
+			"pkg",
+			"**/build",
+			"**/dist",
+			"**/*.egg-info"
+		],
 		"liveServer.settings.multiRootWorkspaceName": "vllm-ascend-dev"
 	}
 }
